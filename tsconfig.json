@@ -14,7 +14,15 @@
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "skipLibCheck": true,
-    "stripInternal": true
+    "stripInternal": true,
+   "paths": {
+      "@core/*": ["./src/core/*"],
+      "@retry/*": ["./src/retry/*"],
+      "@fetch/*": ["./src/fetch/*"],
+      "@parse/*": ["./src/parse/*"],
+      "@all/*": ["./src/all/*"],
+      "@entry/*": ["./src/entry/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
