@@ -1,6 +1,6 @@
 import { createBrand, VigorBrand, VigorDefault, VigorDefaultType } from "@core/symbol"
 import { VigorParsePolicyBase } from "./policy"
-import type { VigorParseSchema } from "./main"
+import type { VigorParsePolicySchema, VigorParseSchema } from "./main"
 
 export type VigorParseContextSchema<
     T extends VigorParseSchema<T>
@@ -9,7 +9,7 @@ export type VigorParseContextSchema<
 
     result: unknown | VigorDefaultType
     error: unknown
-    response: Response | VigorDefaultType
+    response: VigorParsePolicySchema<T>["target"]
     flags: {
         overrided: boolean
         restarted: boolean

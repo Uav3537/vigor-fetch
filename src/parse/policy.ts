@@ -9,7 +9,7 @@ export type VigorParsePolicySchema<
 > = {
     __brand: VigorBrand<"Parse", "Policy<Schema">
 
-    target: Response | VigorDefaultType
+    target: Request | Response | VigorDefaultType
     settings: VigorParsePolicySettingsSchema<T>
     middlewares: VigorParsePolicyMiddlewaresSchema<T>
     strategies: VigorParsePolicyStrategiesSchema<T>
