@@ -19,7 +19,7 @@
   "scripts": {
     "prebuild": "rimraf dist",
     "build": "rollup -c",
-    "save": "node commit.js"
+    "test": "node test.js"
   },
   "files": [
     "dist"

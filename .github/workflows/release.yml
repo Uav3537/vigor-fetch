@@ -39,13 +39,13 @@ jobs:
           fi
 
       - name: Install Dependencies
-        if: steps.check.outputs.should_publish == 'true'
         run: npm ci
 
+      - name: Build
+        run: npm run build
+
       - name: Test
-        if: steps.check.outputs.should_publish == 'true'
         run: npm test
 
       - name: Publish
-        if: steps.check.outputs.should_publish == 'true'
         run: npm publish --provenance
