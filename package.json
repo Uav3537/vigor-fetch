@@ -7,7 +7,7 @@
   "types": "./dist/index.d.ts",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Uav3537/Vigor"
+    "url": "https://github.com/Uav3537/vigor-fetch"
   },
   "exports": {
     ".": {
