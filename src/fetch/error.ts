@@ -8,7 +8,7 @@ export const VigorFetchErrorMessageFuncs = {
         ? `Invalid URL: could not resolve "${origin}" against base "${base}"`
         : `Invalid URL: "${origin}" is not an absolute URL, and no base (window.location) is available to resolve it against — pass an absolute origin (e.g. "https://api.example.com") when running outside a browser`,
     FETCH_FAILED: ({ status, statusText }: { status: number, statusText: string, response: Response, url: string, parsed: unknown }) => `Fetch Failed: ${status} ${statusText}`,
-    RESTART_EXHAUSTED: ({ maxAttempts }: { maxAttempts: number }) => `Restart exhausted, (max ${maxAttempts})`,
+    RESTART_EXHAUSTED: ({ maxAttempts }: { maxAttempts: number, error: unknown }) => `Restart exhausted, (max ${maxAttempts})`,
 } as const
 
 export type VigorFetchErrorCodes = keyof typeof VigorFetchErrorMessageFuncs

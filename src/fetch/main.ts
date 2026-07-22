@@ -293,7 +293,7 @@ export class VigorFetch<
             ctx.href = this._buildUrl(ctx.policy.origin, ctx.policy.path, ctx.policy.query, ctx.policy.hash)
 
             const hasBody = !isVigorEmpty(ctx.policy.body) && ctx.policy.body !== undefined
-            const method = ctx.policy.method || (hasBody ? "POST" : "GET")
+            const method = isVigorEmpty(ctx.policy.method) ? (hasBody ? "POST" : "GET") : ctx.policy.method
 
             let options: VigorFetchOptions = {
                 ...ctx.policy.extra,
@@ -430,8 +430,10 @@ export class VigorFetch<
             if (ctx.flags.restarted) {
                 if (restartAttempt + 1 > ctx.policy.settings.maxRestarts) throw new VigorFetchError("RESTART_EXHAUSTED", {
                     method: "request",
+                    cause: ctx.error,
                     data: {
-                        maxAttempts: ctx.policy.settings.maxRestarts
+                        maxAttempts: ctx.policy.settings.maxRestarts,
+                        error: ctx.error
                     }
                 })
                 return await this.requestRuntime<R>(restartAttempt + 1)

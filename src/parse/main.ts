@@ -222,8 +222,10 @@ export class VigorParse<
             if (ctx.flags.restarted) {
                 if (restartAttempt + 1 > ctx.policy.settings.maxRestarts) throw new VigorParseError("RESTART_EXHAUSTED", {
                     method: "request",
+                    cause: ctx.error,
                     data: {
-                        maxAttempts: ctx.policy.settings.maxRestarts
+                        maxAttempts: ctx.policy.settings.maxRestarts,
+                        error: ctx.error
                     }
                 })
                 return await this.requestRuntime<R>(restartAttempt + 1)

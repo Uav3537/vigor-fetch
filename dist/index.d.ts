@@ -8,19 +8,6 @@ type VigorApply<F extends VigorTypeLambda, In> = F extends {
     readonly In: In;
 })["Target"] : never;
 
-type VigorBrand<Branch extends string, Name extends string> = string & {
-    __brand: `@vigor-fetch:::${Branch} <- ${Name}`;
-};
-declare const VigorDefault: symbol & {
-    __brand: VigorBrand<"Core", "Symbol_Default">;
-};
-type VigorDefaultType = typeof VigorDefault;
-declare const VigorEmpty: symbol & {
-    __brand: VigorBrand<"Core", "Symbol_Empty">;
-};
-type VigorEmptyType = typeof VigorEmpty;
-type VigorExcludeEmpty<T> = Exclude<T, VigorEmptyType>;
-
 type VigorPrimitive = string | number | bigint | boolean | symbol | null | undefined;
 type VigorBuiltin = VigorPrimitive | Date | RegExp | Function | Map<any, any> | Set<any> | WeakMap<any, any> | WeakSet<any>;
 type VigorDeepPartial<T> = unknown extends T ? T : T extends VigorBuiltin ? T : T extends readonly (infer U)[] ? readonly VigorDeepPartial<U>[] : {
@@ -42,6 +29,19 @@ type VigorMergeMode = "merge" | "replace" | "concat";
 type VigorMergeStrategy<T> = T extends VigorBuiltin ? VigorMergeMode | undefined : T extends readonly any[] ? VigorMergeMode : {
     [K in keyof T]?: VigorMergeStrategy<T[K]> | VigorMergeMode;
 };
+
+type VigorBrand<Branch extends string, Name extends string> = string & {
+    __brand: `@vigor-fetch:::${Branch} <- ${Name}`;
+};
+declare const VigorDefault: symbol & {
+    __brand: VigorBrand<"Core", "Symbol_Default">;
+};
+type VigorDefaultType = typeof VigorDefault;
+declare const VigorEmpty: symbol & {
+    __brand: VigorBrand<"Core", "Symbol_Empty">;
+};
+type VigorEmptyType = typeof VigorEmpty;
+type VigorExcludeEmpty<T> = Exclude<T, VigorEmptyType>;
 
 /**
  * Base class for Vigor's immutable, chainable builder objects.
@@ -159,63 +159,6 @@ type VigorAllEachContextSchema<T extends VigorAllSchema<T>> = {
     record: Record<string, any>;
 };
 
-type VigorAllEachMiddlewareFn = (ctx: VigorAllEachContextSchema<any>) => void | Promise<void>;
-type VigorAllEachOnErrorFn = (ctx: VigorAllEachContextSchema<any>, api: {
-    setResult: (r: unknown) => void;
-}) => void | Promise<void>;
-type VigorAllPolicyMiddlewaresSchema<T extends VigorAllSchema<T>> = {
-    __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
-    before: VigorAllEachMiddlewareFn[];
-    after: VigorAllEachMiddlewareFn[];
-    onError: VigorAllEachOnErrorFn[];
-};
-declare const VigorAllPolicyMiddlewaresBase: {
-    readonly __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
-    readonly before: VigorAllEachMiddlewareFn[];
-    readonly after: VigorAllEachMiddlewareFn[];
-    readonly onError: VigorAllEachOnErrorFn[];
-};
-/** Immutable builder for an all-policy's per-task middleware pipeline (`before`, `after`, `onError`). */
-declare class VigorAllPolicyMiddlewares<T extends VigorAllSchema<T> = typeof VigorAllBase> extends VigorStatus<VigorAllSchema<any>, T, VigorAllPolicyMiddlewaresTypeLambda> {
-    constructor(config?: T);
-    protected _create<C>(config: C): VigorApply<VigorAllPolicyMiddlewaresTypeLambda, C>;
-    /** Registers a middleware that runs before each task is invoked. */
-    before<const N extends VigorAllEachMiddlewareFn>(func: N): VigorAllPolicyMiddlewares<VigorAllIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly middlewares: {
-                readonly before: readonly [N];
-            };
-        };
-    }>>>;
-    /** Registers a middleware that runs after each task settles successfully. */
-    after<const N extends VigorAllEachMiddlewareFn>(func: N): VigorAllPolicyMiddlewares<VigorAllIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly middlewares: {
-                readonly after: readonly [N];
-            };
-        };
-    }>>>;
-    /** Registers a middleware that runs when an individual task fails. */
-    onError<const N extends VigorAllEachOnErrorFn>(func: N): VigorAllPolicyMiddlewares<VigorAllIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly middlewares: {
-                readonly onError: readonly [N];
-            };
-        };
-    }>>>;
-}
-
-type VigorAllIn<T> = T extends VigorAllSchema<any> ? T : never;
-interface VigorAllTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorAll<VigorAllIn<this["In"]>>;
-}
-interface VigorAllPolicySettingsTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorAllPolicySettings<VigorAllIn<this["In"]>>;
-}
-interface VigorAllPolicyMiddlewaresTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorAllPolicyMiddlewares<VigorAllIn<this["In"]>>;
-}
-
 type VigorAllSchema<T extends VigorAllSchema<T>> = {
     __brand: VigorBrand<"All", "Schema">;
     policy: VigorAllPolicySchema<T>;
@@ -277,61 +220,15 @@ declare class VigorAll<T extends VigorAllSchema<T> = typeof VigorAllBase> extend
     }>>>;
     /** Configures the all-policy's general settings (concurrency, onlySuccess). */
     settings<const N extends VigorDeepPartial<VigorAllPolicySettingsSchema<T>>, R extends VigorAllSchema<any>>(input: N | ((s: VigorAllPolicySettings<T>) => VigorAllPolicySettings<R>) | VigorAllPolicySettings<R>): VigorAll<VigorAllIn<VigorDeepMerge<T, {
-        __brand?: VigorBrand<"All", "Schema"> | undefined;
-        policy?: {
-            __brand?: VigorBrand<"All", "Policy<Schema"> | undefined;
-            target?: readonly VigorAllTask[] | undefined;
-            settings?: {
-                __brand?: VigorBrand<"All", "Policy<Settings<Schema"> | undefined;
-                concurrency?: number | undefined;
-                onlySuccess?: boolean | undefined;
-            } | undefined;
-            middlewares?: {
-                __brand?: VigorBrand<"All", "Policy<Middlewares<Schema"> | undefined;
-                before?: readonly VigorAllEachMiddlewareFn[] | undefined;
-                after?: readonly VigorAllEachMiddlewareFn[] | undefined;
-                onError?: readonly VigorAllEachOnErrorFn[] | undefined;
-            } | undefined;
-        } | undefined;
-        context?: {
-            __brand?: VigorBrand<"All", "Context<Schema"> | undefined;
-            result?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | readonly unknown[] | undefined;
-            policy?: any;
-            record?: {
-                [x: string]: any;
-            } | undefined;
-        } | undefined;
+        readonly policy: {
+            readonly settings: VigorAllPolicySettingsSchema<any>;
+        };
     }>>>;
     /** Configures the all-policy's per-task middleware pipeline. */
     middlewares<const N extends VigorDeepPartial<VigorAllPolicyMiddlewaresSchema<T>>, R extends VigorAllSchema<any>>(input: N | ((s: VigorAllPolicyMiddlewares<T>) => VigorAllPolicyMiddlewares<R>) | VigorAllPolicyMiddlewares<R>): VigorAll<VigorAllIn<VigorDeepMerge<T, {
-        __brand?: VigorBrand<"All", "Schema"> | undefined;
-        policy?: {
-            __brand?: VigorBrand<"All", "Policy<Schema"> | undefined;
-            target?: readonly VigorAllTask[] | undefined;
-            settings?: {
-                __brand?: VigorBrand<"All", "Policy<Settings<Schema"> | undefined;
-                concurrency?: number | undefined;
-                onlySuccess?: boolean | undefined;
-            } | undefined;
-            middlewares?: {
-                __brand?: VigorBrand<"All", "Policy<Middlewares<Schema"> | undefined;
-                before?: readonly VigorAllEachMiddlewareFn[] | undefined;
-                after?: readonly VigorAllEachMiddlewareFn[] | undefined;
-                onError?: readonly VigorAllEachOnErrorFn[] | undefined;
-            } | undefined;
-        } | undefined;
-        context?: {
-            __brand?: VigorBrand<"All", "Context<Schema"> | undefined;
-            result?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | readonly unknown[] | undefined;
-            policy?: any;
-            record?: {
-                [x: string]: any;
-            } | undefined;
-        } | undefined;
+        readonly policy: {
+            readonly middlewares: VigorAllPolicyMiddlewaresSchema<any>;
+        };
     }>>>;
     /** Runs a single task through the before/after/onError middleware pipeline. */
     private _runTask;
@@ -351,74 +248,68 @@ declare class VigorAll<T extends VigorAllSchema<T> = typeof VigorAllBase> extend
     private requestRuntime;
 }
 
-type VigorFetchPolicySettingsSchema<T extends VigorFetchSchema<T>> = {
-    __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
-    retryHeaders: string[];
-    unretryStatus: number[];
-    maxRestarts: number;
-    default: ((ctx: T["context"]) => any | Promise<any>) | VigorEmptyType;
+type VigorAllIn<T> = T extends VigorAllSchema<any> ? T : never;
+interface VigorAllTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorAll<VigorAllIn<this["In"]>>;
+}
+interface VigorAllPolicySettingsTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorAllPolicySettings<VigorAllIn<this["In"]>>;
+}
+interface VigorAllPolicyMiddlewaresTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorAllPolicyMiddlewares<VigorAllIn<this["In"]>>;
+}
+
+type VigorAllEachMiddlewareFn = (ctx: VigorAllEachContextSchema<any>) => void | Promise<void>;
+type VigorAllEachOnErrorFn = (ctx: VigorAllEachContextSchema<any>, api: {
+    setResult: (r: unknown) => void;
+}) => void | Promise<void>;
+type VigorAllPolicyMiddlewaresSchema<T extends VigorAllSchema<T>> = {
+    __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
+    before: VigorAllEachMiddlewareFn[];
+    after: VigorAllEachMiddlewareFn[];
+    onError: VigorAllEachOnErrorFn[];
 };
-declare const VigorFetchPolicySettingsBase: {
-    readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
-    readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"];
-    readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
-    readonly maxRestarts: 3;
-    readonly default: symbol & {
-        __brand: VigorBrand<"Core", "Symbol_Empty">;
-    };
+declare const VigorAllPolicyMiddlewaresBase: {
+    readonly __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
+    readonly before: VigorAllEachMiddlewareFn[];
+    readonly after: VigorAllEachMiddlewareFn[];
+    readonly onError: VigorAllEachOnErrorFn[];
 };
-/** Immutable builder for a fetch policy's general settings. */
-declare class VigorFetchPolicySettings<T extends VigorFetchSchema<T> = typeof VigorFetchBase> extends VigorStatus<VigorFetchSchema<any>, T, VigorFetchPolicySettingsTypeLambda> {
+/** Immutable builder for an all-policy's per-task middleware pipeline (`before`, `after`, `onError`). */
+declare class VigorAllPolicyMiddlewares<T extends VigorAllSchema<T> = typeof VigorAllBase> extends VigorStatus<VigorAllSchema<any>, T, VigorAllPolicyMiddlewaresTypeLambda> {
     constructor(config?: T);
-    protected _create<C>(config: C): VigorApply<VigorFetchPolicySettingsTypeLambda, C>;
-    /** Sets response headers consulted to compute a server-suggested retry delay. */
-    retryHeaders<const N extends VigorFetchSchema<any>["policy"]["settings"]["retryHeaders"]>(...strs: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
+    protected _create<C>(config: C): VigorApply<VigorAllPolicyMiddlewaresTypeLambda, C>;
+    /** Registers a middleware that runs before each task is invoked. */
+    before<const N extends VigorAllEachMiddlewareFn>(func: N): VigorAllPolicyMiddlewares<VigorAllIn<VigorDeepMerge<T, {
         readonly policy: {
-            readonly settings: {
-                readonly retryHeaders: N;
+            readonly middlewares: {
+                readonly before: readonly [N];
             };
         };
     }>>>;
-    /** Sets HTTP status codes that should never be retried. */
-    unretryStatus<const N extends VigorFetchSchema<any>["policy"]["settings"]["unretryStatus"]>(...nums: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
+    /** Registers a middleware that runs after each task settles successfully. */
+    after<const N extends VigorAllEachMiddlewareFn>(func: N): VigorAllPolicyMiddlewares<VigorAllIn<VigorDeepMerge<T, {
         readonly policy: {
-            readonly settings: {
-                readonly unretryStatus: N;
+            readonly middlewares: {
+                readonly after: readonly [N];
             };
         };
     }>>>;
-    /** Sets the maximum number of full restarts allowed. */
-    maxRestarts<const N extends VigorFetchSchema<any>["policy"]["settings"]["maxRestarts"]>(num: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
+    /** Registers a middleware that runs when an individual task fails. */
+    onError<const N extends VigorAllEachOnErrorFn>(func: N): VigorAllPolicyMiddlewares<VigorAllIn<VigorDeepMerge<T, {
         readonly policy: {
-            readonly settings: {
-                readonly maxRestarts: N;
-            };
-        };
-    }>>>;
-    /** Sets the fallback value/factory used when the request ultimately fails. */
-    default<const N extends VigorExcludeEmpty<VigorFetchSchema<any>["policy"]["settings"]["default"]>>(func: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly settings: {
-                readonly default: N;
+            readonly middlewares: {
+                readonly onError: readonly [N];
             };
         };
     }>>>;
 }
 
-type VigorFetchExtraOptions = Omit<RequestInit, "method" | "headers" | "body" | "signal">;
-type VigorFetchOptions = VigorFetchExtraOptions & {
-    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "CONNECT" | "TRACE";
-    headers: Record<string, string>;
-    body?: BodyInit | null;
-    signal?: AbortSignal;
-};
-type VigorFetchContextSchema<T extends VigorFetchSchema<T>> = {
-    __brand: VigorBrand<"Fetch", "Context<Schema">;
-    href: string;
-    response: Response | VigorDefaultType;
+type VigorParseContextSchema<T extends VigorParseSchema<T>> = {
+    __brand: VigorBrand<"Parse", "Context<Schema">;
     result: unknown | VigorDefaultType;
     error: unknown;
-    options: VigorFetchOptions | VigorDefaultType;
+    response: VigorParsePolicySchema<T>["target"];
     flags: {
         overrided: boolean;
         restarted: boolean;
@@ -427,22 +318,66 @@ type VigorFetchContextSchema<T extends VigorFetchSchema<T>> = {
     policy: T["policy"];
 };
 
-type VigorFetchPolicyMiddlewaresSchema<T extends VigorFetchSchema<T>> = {
-    __brand: VigorBrand<"Fetch", "Policy<Middlewares<Schema">;
-    before: (VigorFetchPolicyMiddlewaresFluent<T>["before"] | VigorFetchPolicyMiddlewaresIntercept<T>["before"])[];
-    after: (VigorFetchPolicyMiddlewaresFluent<T>["after"] | VigorFetchPolicyMiddlewaresIntercept<T>["after"])[];
-    onResult: (VigorFetchPolicyMiddlewaresFluent<T>["onResult"] | VigorFetchPolicyMiddlewaresIntercept<T>["onResult"])[];
-    onError: (VigorFetchPolicyMiddlewaresFluent<T>["onError"] | VigorFetchPolicyMiddlewaresIntercept<T>["onError"])[];
+type VigorParsePolicySettingsSchema<T extends VigorParseSchema<T>> = {
+    __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+    raw: boolean;
+    default: ((ctx: T["context"]) => any | Promise<any>) | VigorEmptyType;
+    maxRestarts: number;
 };
-declare const VigorFetchPolicyMiddlewaresBase: {
-    readonly __brand: VigorBrand<"Fetch", "Policy<Middlewares<Schema">;
+declare const VigorParsePolicySettingsBase: {
+    readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+    readonly raw: false;
+    readonly default: symbol & {
+        __brand: VigorBrand<"Core", "Symbol_Empty">;
+    };
+    readonly maxRestarts: 3;
+};
+/** Immutable builder for a parse policy's general settings. */
+declare class VigorParsePolicySettings<T extends VigorParseSchema<T> = typeof VigorParseBase> extends VigorStatus<VigorParseSchema<any>, T, VigorParsePolicySettingsTypeLambda> {
+    constructor(config?: T);
+    protected _create<C>(config: C): VigorApply<VigorParsePolicySettingsTypeLambda, C>;
+    /** When enabled, skips content-type based parsing and returns the raw response. */
+    raw<const N extends VigorParseSchema<any>["policy"]["settings"]["raw"]>(bool: N): VigorParsePolicySettings<VigorParseIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly raw: N;
+            };
+        };
+    }>>>;
+    /** Sets the fallback value/factory used when parsing ultimately fails. */
+    default<const N extends VigorExcludeEmpty<VigorParseSchema<any>["policy"]["settings"]["default"]>>(func: N): VigorParsePolicySettings<VigorParseIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly default: N;
+            };
+        };
+    }>>>;
+    /** Sets the maximum number of full restarts allowed. */
+    maxRestarts<const N extends VigorParseSchema<any>["policy"]["settings"]["maxRestarts"]>(num: N): VigorParsePolicySettings<VigorParseIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly maxRestarts: N;
+            };
+        };
+    }>>>;
+}
+
+type VigorParsePolicyMiddlewaresSchema<T extends VigorParseSchema<T>> = {
+    __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+    before: (VigorParsePolicyMiddlewaresFluent<T>["before"] | VigorParsePolicyMiddlewaresIntercept<T>["before"])[];
+    after: (VigorParsePolicyMiddlewaresFluent<T>["after"] | VigorParsePolicyMiddlewaresIntercept<T>["after"])[];
+    onResult: (VigorParsePolicyMiddlewaresFluent<T>["onResult"] | VigorParsePolicyMiddlewaresIntercept<T>["onResult"])[];
+    onError: (VigorParsePolicyMiddlewaresFluent<T>["onError"] | VigorParsePolicyMiddlewaresIntercept<T>["onError"])[];
+};
+declare const VigorParsePolicyMiddlewaresBase: {
+    readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
     readonly before: [];
     readonly after: [];
     readonly onResult: [];
     readonly onError: [];
 };
-type VigorFetchPolicyMiddlewaresFluent<T extends VigorFetchSchema<T>> = {
-    __brand: VigorBrand<"Fetch", "Policy<Middlewares<Fluent<Schema">;
+type VigorParsePolicyMiddlewaresFluent<T extends VigorParseSchema<T>> = {
+    __brand: VigorBrand<"Parse", "Policy<Middlewares<Fluent<Schema">;
     before: {
         _mode: "fluent";
         func: (ctx: T["context"]) => void;
@@ -453,52 +388,49 @@ type VigorFetchPolicyMiddlewaresFluent<T extends VigorFetchSchema<T>> = {
     };
     onResult: {
         _mode: "fluent";
-        func: (res: T["context"]["result"]) => VigorFetchSchema<any>["context"]["result"];
+        func: (res: T["context"]["result"]) => VigorParseSchema<any>["context"]["result"];
     };
     onError: {
         _mode: "fluent";
         func: (err: T["context"]["error"]) => void;
     };
 };
-type VigorFetchPolicyMiddlewaresApi<T extends VigorFetchSchema<T>> = {
-    setResult: (res: VigorFetchSchema<any>["context"]["result"]) => void;
-    throwError: (err: VigorFetchSchema<any>["context"]["error"]) => void;
-    setOptions: (opts: VigorFetchOptions) => void;
-    setHeaders: (headers: VigorFetchOptions["headers"]) => void;
-    setBody: (body: VigorFetchOptions["body"]) => void;
+type VigorParsePolicyMiddlewaresApi<T extends VigorParseSchema<T>> = {
+    setResult: (res: VigorParseSchema<any>["context"]["result"]) => void;
+    throwError: (err: VigorParseSchema<any>["context"]["error"]) => void;
     proceedRestart: () => void;
     cancelRestart: () => void;
 };
-type VigorFetchPolicyMiddlewaresIntercept<T extends VigorFetchSchema<T>> = {
-    __brand: VigorBrand<"Fetch", "Policy<Middlewares<Intercept<Schema">;
+type VigorParsePolicyMiddlewaresIntercept<T extends VigorParseSchema<T>> = {
+    __brand: VigorBrand<"Parse", "Policy<Middlewares<Intercept<Schema">;
     before: {
         _mode: "intercept";
-        func: (ctx: T["context"], api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "throwError" | "setOptions" | "setHeaders" | "setBody">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>;
+        func: (ctx: T["context"], api: Pick<VigorParsePolicyMiddlewaresApi<T>, "throwError">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>;
     };
     after: {
         _mode: "intercept";
-        func: (ctx: T["context"], api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult" | "throwError">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>;
+        func: (ctx: T["context"], api: Pick<VigorParsePolicyMiddlewaresApi<T>, "setResult" | "throwError">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>;
     };
     onResult: {
         _mode: "intercept";
-        func: (ctx: T["context"], api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult" | "throwError">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>;
+        func: (ctx: T["context"], api: Pick<VigorParsePolicyMiddlewaresApi<T>, "setResult" | "throwError">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>;
     };
     onError: {
         _mode: "intercept";
-        func: (ctx: T["context"], api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult" | "throwError" | "proceedRestart" | "cancelRestart">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>;
+        func: (ctx: T["context"], api: Pick<VigorParsePolicyMiddlewaresApi<T>, "setResult" | "throwError" | "proceedRestart" | "cancelRestart">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>;
     };
 };
 /**
- * Immutable builder for a fetch policy's middleware pipeline (`before`,
+ * Immutable builder for a parse policy's middleware pipeline (`before`,
  * `after`, `onResult`, `onError`). Each stage accepts either "fluent"
  * middleware (returns a plain value merged into the context) or
  * "intercept" middleware (receives an explicit API to mutate control flow).
  */
-declare class VigorFetchPolicyMiddlewares<T extends VigorFetchSchema<T> = typeof VigorFetchBase> extends VigorStatus<VigorFetchSchema<any>, T, VigorFetchPolicyMiddlewaresTypeLambda> {
+declare class VigorParsePolicyMiddlewares<T extends VigorParseSchema<T> = typeof VigorParseBase> extends VigorStatus<VigorParseSchema<any>, T, VigorParsePolicyMiddlewaresTypeLambda> {
     constructor(config?: T);
-    protected _create<C>(config: C): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, C>;
-    /** Registers a middleware that runs before the request is sent. */
-    before<const N extends VigorFetchPolicyMiddlewaresFluent<any>["before"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    protected _create<C>(config: C): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, C>;
+    /** Registers a middleware that runs before the response is parsed. */
+    before<const N extends VigorParsePolicyMiddlewaresFluent<any>["before"]["func"]>(type: "fluent", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 before: [{
@@ -508,7 +440,7 @@ declare class VigorFetchPolicyMiddlewares<T extends VigorFetchSchema<T> = typeof
             };
         };
     }>>;
-    before<const N extends VigorFetchPolicyMiddlewaresIntercept<any>["before"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    before<const N extends VigorParsePolicyMiddlewaresIntercept<any>["before"]["func"]>(type: "intercept", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 before: [{
@@ -518,8 +450,8 @@ declare class VigorFetchPolicyMiddlewares<T extends VigorFetchSchema<T> = typeof
             };
         };
     }>>;
-    /** Registers a middleware that runs after the response is received. */
-    after<const N extends VigorFetchPolicyMiddlewaresFluent<any>["after"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    /** Registers a middleware that runs after the response has been parsed. */
+    after<const N extends VigorParsePolicyMiddlewaresFluent<any>["after"]["func"]>(type: "fluent", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 after: [{
@@ -529,7 +461,7 @@ declare class VigorFetchPolicyMiddlewares<T extends VigorFetchSchema<T> = typeof
             };
         };
     }>>;
-    after<const N extends VigorFetchPolicyMiddlewaresIntercept<any>["after"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    after<const N extends VigorParsePolicyMiddlewaresIntercept<any>["after"]["func"]>(type: "intercept", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 after: [{
@@ -540,7 +472,7 @@ declare class VigorFetchPolicyMiddlewares<T extends VigorFetchSchema<T> = typeof
         };
     }>>;
     /** Registers a middleware that transforms or validates the parsed result. */
-    onResult<const N extends VigorFetchPolicyMiddlewaresFluent<any>["onResult"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    onResult<const N extends VigorParsePolicyMiddlewaresFluent<any>["onResult"]["func"]>(type: "fluent", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 onResult: [{
@@ -550,7 +482,7 @@ declare class VigorFetchPolicyMiddlewares<T extends VigorFetchSchema<T> = typeof
             };
         };
     }>>;
-    onResult<const N extends VigorFetchPolicyMiddlewaresIntercept<any>["onResult"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    onResult<const N extends VigorParsePolicyMiddlewaresIntercept<any>["onResult"]["func"]>(type: "intercept", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 onResult: [{
@@ -560,8 +492,8 @@ declare class VigorFetchPolicyMiddlewares<T extends VigorFetchSchema<T> = typeof
             };
         };
     }>>;
-    /** Registers a middleware that runs when the request ultimately fails. */
-    onError<const N extends VigorFetchPolicyMiddlewaresFluent<any>["onError"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    /** Registers a middleware that runs when parsing ultimately fails. */
+    onError<const N extends VigorParsePolicyMiddlewaresFluent<any>["onError"]["func"]>(type: "fluent", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 onError: [{
@@ -571,7 +503,7 @@ declare class VigorFetchPolicyMiddlewares<T extends VigorFetchSchema<T> = typeof
             };
         };
     }>>;
-    onError<const N extends VigorFetchPolicyMiddlewaresIntercept<any>["onError"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    onError<const N extends VigorParsePolicyMiddlewaresIntercept<any>["onError"]["func"]>(type: "intercept", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 onError: [{
@@ -583,66 +515,270 @@ declare class VigorFetchPolicyMiddlewares<T extends VigorFetchSchema<T> = typeof
     }>>;
 }
 
-type VigorFetchIn<T> = T extends VigorFetchSchema<any> ? T : never;
-interface VigorFetchTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorFetch<VigorFetchIn<this["In"]>>;
-}
-interface VigorFetchPolicySettingsTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorFetchPolicySettings<VigorFetchIn<this["In"]>>;
-}
-interface VigorFetchPolicyMiddlewaresTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorFetchPolicyMiddlewares<VigorFetchIn<this["In"]>>;
-}
-
-type VigorRetryPolicySettingsSchema<T extends VigorRetrySchema<T>> = {
-    __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
-    default: ((ctx: T["context"]) => any | Promise<any>) | VigorEmptyType;
-    maxAttempts: number;
-    maxRestarts: number;
-    timeout: number;
+type VigorParsePolicySchema<T extends VigorParseSchema<T>> = {
+    __brand: VigorBrand<"Parse", "Policy<Schema">;
+    target: Request | Response | VigorDefaultType;
+    settings: VigorParsePolicySettingsSchema<T>;
+    middlewares: VigorParsePolicyMiddlewaresSchema<T>;
+    strategies: VigorParsePolicyStrategiesSchema<T>;
 };
-declare const VigorRetryPolicySettingsBase: {
-    readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
-    readonly default: symbol & {
-        __brand: VigorBrand<"Core", "Symbol_Empty">;
+declare const VigorParsePolicyBase: {
+    readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+    readonly target: symbol & {
+        __brand: VigorBrand<"Core", "Symbol_Default">;
     };
-    readonly maxAttempts: 5;
-    readonly maxRestarts: 3;
-    readonly timeout: 20000;
+    readonly settings: {
+        readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+        readonly raw: false;
+        readonly default: symbol & {
+            __brand: VigorBrand<"Core", "Symbol_Empty">;
+        };
+        readonly maxRestarts: 3;
+    };
+    readonly middlewares: {
+        readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+        readonly before: [];
+        readonly after: [];
+        readonly onResult: [];
+        readonly onError: [];
+    };
+    readonly strategies: {
+        readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+        readonly funcs: VigorParseStrategyFunc[];
+    };
 };
-/** Immutable builder for a retry policy's general settings. */
-declare class VigorRetryPolicySettings<T extends VigorRetrySchema<T> = typeof VigorRetryBase> extends VigorStatus<VigorRetrySchema<any>, T, VigorRetryPolicySettingsTypeLambda> {
+
+type VigorParseSchema<T extends VigorParseSchema<T>> = {
+    __brand: VigorBrand<"Parse", "Schema">;
+    policy: VigorParsePolicySchema<T>;
+    context: VigorParseContextSchema<T>;
+};
+declare const VigorParseBase: {
+    readonly __brand: VigorBrand<"Parse", "Schema">;
+    readonly policy: {
+        readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+        readonly target: symbol & {
+            __brand: VigorBrand<"Core", "Symbol_Default">;
+        };
+        readonly settings: {
+            readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+            readonly raw: false;
+            readonly default: symbol & {
+                __brand: VigorBrand<"Core", "Symbol_Empty">;
+            };
+            readonly maxRestarts: 3;
+        };
+        readonly middlewares: {
+            readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+            readonly before: [];
+            readonly after: [];
+            readonly onResult: [];
+            readonly onError: [];
+        };
+        readonly strategies: {
+            readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+            readonly funcs: VigorParseStrategyFunc[];
+        };
+    };
+    readonly context: {
+        readonly __brand: VigorBrand<"Parse", "Context<Schema">;
+        readonly result: symbol & {
+            __brand: VigorBrand<"Core", "Symbol_Default">;
+        };
+        readonly error: symbol & {
+            __brand: VigorBrand<"Core", "Symbol_Default">;
+        };
+        readonly response: symbol & {
+            __brand: VigorBrand<"Core", "Symbol_Default">;
+        };
+        readonly flags: {
+            readonly overrided: false;
+            readonly restarted: false;
+        };
+        readonly record: {};
+        readonly policy: {
+            readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+            readonly target: symbol & {
+                __brand: VigorBrand<"Core", "Symbol_Default">;
+            };
+            readonly settings: {
+                readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                readonly raw: false;
+                readonly default: symbol & {
+                    __brand: VigorBrand<"Core", "Symbol_Empty">;
+                };
+                readonly maxRestarts: 3;
+            };
+            readonly middlewares: {
+                readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                readonly before: [];
+                readonly after: [];
+                readonly onResult: [];
+                readonly onError: [];
+            };
+            readonly strategies: {
+                readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                readonly funcs: VigorParseStrategyFunc[];
+            };
+        };
+    };
+};
+/**
+ * Immutable builder that parses an HTTP response into a result value,
+ * trying each configured strategy in sequence with an optional middleware
+ * pipeline and restart-on-failure support.
+ */
+declare class VigorParse<T extends VigorParseSchema<T> = typeof VigorParseBase> extends VigorStatus<VigorParseSchema<T>, T, VigorParseTypeLambda> {
     constructor(config?: T);
-    protected _create<C>(config: C): VigorApply<VigorRetryPolicySettingsTypeLambda, C>;
-    /** Sets the fallback value/factory used when the target ultimately fails. */
-    default<const N extends VigorExcludeEmpty<VigorRetrySchema<any>["policy"]["settings"]["default"]>>(func: N): VigorRetryPolicySettings<VigorRetryIn<VigorDeepMerge<T, {
+    protected _create<C>(config: C): VigorApply<VigorParseTypeLambda, C>;
+    /** Sets the `Response` object to parse. */
+    target<const N extends VigorParseSchema<T>["policy"]["target"]>(response: N): VigorParse<VigorParseIn<VigorDeepMerge<T, {
         readonly policy: {
-            readonly settings: {
-                readonly default: N;
+            readonly target: N;
+        };
+    }>>>;
+    /** Configures the parse policy's general settings. */
+    settings<const N extends VigorDeepPartial<VigorParsePolicySettingsSchema<T>>, R extends VigorParseSchema<any>>(input: N | ((s: VigorParsePolicySettings<T>) => VigorParsePolicySettings<R>) | VigorParsePolicySettings<R>): VigorParse<VigorParseIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: VigorParsePolicySettingsSchema<any>;
+        };
+    }>>>;
+    /** Configures the parse policy's middleware pipeline. */
+    middlewares<const N extends VigorDeepPartial<VigorParsePolicyMiddlewaresSchema<T>>, R extends VigorParseSchema<any>>(input: N | ((s: VigorParsePolicyMiddlewares<T>) => VigorParsePolicyMiddlewares<R>) | VigorParsePolicyMiddlewares<R>): VigorParse<VigorParseIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly middlewares: VigorParsePolicyMiddlewaresSchema<any>;
+        };
+    }>>>;
+    /** Configures the parse policy's fallback chain of parsing strategies. */
+    strategies<const N extends VigorDeepPartial<VigorParsePolicyStrategiesSchema<T>>, R extends VigorParseSchema<any>>(input: N | ((s: VigorParsePolicyStrategies<T>) => VigorParsePolicyStrategies<R>) | VigorParsePolicyStrategies<R>): VigorParse<VigorParseIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly strategies: VigorParsePolicyStrategiesSchema<any>;
+        };
+    }>>>;
+    /** Runs parsing and returns the result directly, throwing on final failure. */
+    request<R = T["context"]["result"]>(): Promise<R>;
+    /** Runs parsing and returns a result/error envelope instead of throwing. */
+    requestVerbose<R = T["context"]["result"]>(): Promise<{
+        success: false;
+        data: null;
+        error: unknown;
+    } | {
+        success: true;
+        data: R;
+        error: null;
+    }>;
+    /** Internal execution loop implementing the strategy fallback and restart handling. */
+    private requestRuntime;
+}
+
+type VigorParseIn<T> = T extends VigorParseSchema<any> ? T : never;
+interface VigorParseTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorParse<VigorParseIn<this["In"]>>;
+}
+interface VigorParsePolicySettingsTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorParsePolicySettings<VigorParseIn<this["In"]>>;
+}
+interface VigorParsePolicyMiddlewaresTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorParsePolicyMiddlewares<VigorParseIn<this["In"]>>;
+}
+interface VigorParsePolicyStrategiesTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorParsePolicyStrategies<VigorParseIn<this["In"]>>;
+}
+
+type VigorParseStrategyFunc = (response: Response) => Promise<any>;
+type VigorParsePolicyStrategiesSchema<T extends VigorParseSchema<T>> = {
+    __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+    funcs: Array<VigorParseStrategyFunc>;
+};
+declare const VigorParsePolicyStrategiesBase: {
+    readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+    readonly funcs: VigorParseStrategyFunc[];
+};
+/** Parses a response by matching its `Content-Type` header against a known parser table. */
+declare const VigorParseContentTypeStrategy: VigorParseStrategyFunc;
+/** Parses a response by trying a sequence of body-reading methods until one succeeds. */
+declare const VigorParseSniffStrategy: VigorParseStrategyFunc;
+/** Immutable builder for a parse policy's fallback chain of parsing strategies. */
+declare class VigorParsePolicyStrategies<T extends VigorParseSchema<T> = typeof VigorParseBase> extends VigorStatus<VigorParseSchema<any>, T, VigorParsePolicyStrategiesTypeLambda> {
+    constructor(config?: T);
+    protected _create<C>(config: C): VigorApply<VigorParsePolicyStrategiesTypeLambda, C>;
+    /**
+     * Adds strategy functions to the fallback chain.
+     *
+     * @param replace - When `true`, replaces the existing chain instead of
+     *  appending to it (the default is to concat, since strategies are
+     *  tried in sequence as a fallback chain).
+     */
+    private _set;
+    /** Adds the content-type based parsing strategy. */
+    contentType(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly strategies: {
+                readonly funcs: VigorParseStrategyFunc[];
             };
         };
     }>>>;
-    /** Sets the maximum number of retry attempts before giving up. */
-    maxAttempts<const N extends VigorRetrySchema<any>["policy"]["settings"]["maxAttempts"]>(num: N): VigorRetryPolicySettings<VigorRetryIn<VigorDeepMerge<T, {
+    /** Adds the sniffing (try-each-method) parsing strategy. */
+    sniff(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
         readonly policy: {
-            readonly settings: {
-                readonly maxAttempts: N;
+            readonly strategies: {
+                readonly funcs: VigorParseStrategyFunc[];
             };
         };
     }>>>;
-    /** Sets the maximum number of full restarts allowed. */
-    maxRestarts<const N extends VigorRetrySchema<any>["policy"]["settings"]["maxRestarts"]>(num: N): VigorRetryPolicySettings<VigorRetryIn<VigorDeepMerge<T, {
+    /** Adds a strategy that always parses the response as JSON. */
+    json(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
         readonly policy: {
-            readonly settings: {
-                readonly maxRestarts: N;
+            readonly strategies: {
+                readonly funcs: VigorParseStrategyFunc[];
             };
         };
     }>>>;
-    /** Sets the timeout, in milliseconds, for a single attempt. */
-    timeout<const N extends VigorRetrySchema<any>["policy"]["settings"]["timeout"]>(num: N): VigorRetryPolicySettings<VigorRetryIn<VigorDeepMerge<T, {
+    /** Adds a strategy that always parses the response as text. */
+    text(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
         readonly policy: {
-            readonly settings: {
-                readonly timeout: N;
+            readonly strategies: {
+                readonly funcs: VigorParseStrategyFunc[];
+            };
+        };
+    }>>>;
+    /** Adds a strategy that always parses the response as an `ArrayBuffer`. */
+    arrayBuffer(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly strategies: {
+                readonly funcs: VigorParseStrategyFunc[];
+            };
+        };
+    }>>>;
+    /** Adds a strategy that always parses the response as a `Blob`. */
+    blob(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly strategies: {
+                readonly funcs: VigorParseStrategyFunc[];
+            };
+        };
+    }>>>;
+    /** Adds a strategy that always parses the response as a `Uint8Array`. */
+    bytes(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly strategies: {
+                readonly funcs: VigorParseStrategyFunc[];
+            };
+        };
+    }>>>;
+    /** Adds a strategy that always parses the response as `FormData`. */
+    formData(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly strategies: {
+                readonly funcs: VigorParseStrategyFunc[];
+            };
+        };
+    }>>>;
+    /** Adds a user-supplied custom parsing strategy. */
+    custom<const N extends VigorParseStrategyFunc>(func: N, replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly strategies: {
+                readonly funcs: VigorParseStrategyFunc[];
             };
         };
     }>>>;
@@ -900,6 +1036,297 @@ type VigorRetryPipeResult<T extends VigorRetrySchema<T>> = VigorRetryPolicyMiddl
     result: infer R;
 } ? R : never;
 
+type VigorRetryContextSchema<T extends VigorRetrySchema<T>> = {
+    __brand: VigorBrand<"Retry", "Context<Schema">;
+    result: VigorRetryPipeResult<T> | VigorDefaultType;
+    error: unknown;
+    system: {
+        delay: number | VigorDefaultType;
+        attempt: number;
+    };
+    flags: {
+        doRetry: boolean;
+        doRestart: boolean;
+        brokeRetry: boolean;
+        overridden: boolean;
+    };
+    record: Record<string, any>;
+    policy: T["policy"];
+};
+
+type VigorRetryPolicySettingsSchema<T extends VigorRetrySchema<T>> = {
+    __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+    default: ((ctx: T["context"]) => any | Promise<any>) | VigorEmptyType;
+    maxAttempts: number;
+    maxRestarts: number;
+    timeout: number;
+};
+declare const VigorRetryPolicySettingsBase: {
+    readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+    readonly default: symbol & {
+        __brand: VigorBrand<"Core", "Symbol_Empty">;
+    };
+    readonly maxAttempts: 5;
+    readonly maxRestarts: 3;
+    readonly timeout: 20000;
+};
+/** Immutable builder for a retry policy's general settings. */
+declare class VigorRetryPolicySettings<T extends VigorRetrySchema<T> = typeof VigorRetryBase> extends VigorStatus<VigorRetrySchema<any>, T, VigorRetryPolicySettingsTypeLambda> {
+    constructor(config?: T);
+    protected _create<C>(config: C): VigorApply<VigorRetryPolicySettingsTypeLambda, C>;
+    /** Sets the fallback value/factory used when the target ultimately fails. */
+    default<const N extends VigorExcludeEmpty<VigorRetrySchema<any>["policy"]["settings"]["default"]>>(func: N): VigorRetryPolicySettings<VigorRetryIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly default: N;
+            };
+        };
+    }>>>;
+    /** Sets the maximum number of retry attempts before giving up. */
+    maxAttempts<const N extends VigorRetrySchema<any>["policy"]["settings"]["maxAttempts"]>(num: N): VigorRetryPolicySettings<VigorRetryIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly maxAttempts: N;
+            };
+        };
+    }>>>;
+    /** Sets the maximum number of full restarts allowed. */
+    maxRestarts<const N extends VigorRetrySchema<any>["policy"]["settings"]["maxRestarts"]>(num: N): VigorRetryPolicySettings<VigorRetryIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly maxRestarts: N;
+            };
+        };
+    }>>>;
+    /** Sets the timeout, in milliseconds, for a single attempt. */
+    timeout<const N extends VigorRetrySchema<any>["policy"]["settings"]["timeout"]>(num: N): VigorRetryPolicySettings<VigorRetryIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly timeout: N;
+            };
+        };
+    }>>>;
+}
+
+type VigorRetryPolicySchema<T extends VigorRetrySchema<T>> = {
+    __brand: VigorBrand<"Retry", "Policy<Schema">;
+    target: ((signal: AbortSignal) => any | Promise<any>) | VigorEmptyType;
+    abortSignals: AbortSignal[];
+    settings: VigorRetryPolicySettingsSchema<T>;
+    middlewares: VigorRetryPolicyMiddlewaresSchema<T>;
+    algorithms: VigorRetryPolicyAlgorithmsSchema<T>;
+};
+declare const VigorRetryPolicyBase: {
+    readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+    readonly target: symbol & {
+        __brand: VigorBrand<"Core", "Symbol_Empty">;
+    };
+    readonly abortSignals: [];
+    readonly settings: {
+        readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+        readonly default: symbol & {
+            __brand: VigorBrand<"Core", "Symbol_Empty">;
+        };
+        readonly maxAttempts: 5;
+        readonly maxRestarts: 3;
+        readonly timeout: 20000;
+    };
+    readonly middlewares: {
+        readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+        readonly before: [];
+        readonly after: [];
+        readonly onResult: [];
+        readonly retryIf: [];
+        readonly onRetry: [];
+        readonly onError: [];
+    };
+    readonly algorithms: {
+        readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+        readonly _tag: "constant";
+        readonly jitter: 1000;
+        readonly interval: 2000;
+        readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+    };
+};
+
+type VigorRetrySchema<T extends VigorRetrySchema<T>> = {
+    __brand: VigorBrand<"Retry", "Schema">;
+    policy: VigorRetryPolicySchema<T>;
+    context: VigorRetryContextSchema<T>;
+};
+declare const VigorRetryBase: {
+    readonly __brand: VigorBrand<"Retry", "Schema">;
+    readonly policy: {
+        readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+        readonly target: symbol & {
+            __brand: VigorBrand<"Core", "Symbol_Empty">;
+        };
+        readonly abortSignals: [];
+        readonly settings: {
+            readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+            readonly default: symbol & {
+                __brand: VigorBrand<"Core", "Symbol_Empty">;
+            };
+            readonly maxAttempts: 5;
+            readonly maxRestarts: 3;
+            readonly timeout: 20000;
+        };
+        readonly middlewares: {
+            readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+            readonly before: [];
+            readonly after: [];
+            readonly onResult: [];
+            readonly retryIf: [];
+            readonly onRetry: [];
+            readonly onError: [];
+        };
+        readonly algorithms: {
+            readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+            readonly _tag: "constant";
+            readonly jitter: 1000;
+            readonly interval: 2000;
+            readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+        };
+    };
+    readonly context: {
+        readonly __brand: VigorBrand<"Retry", "Context<Schema">;
+        readonly result: symbol & {
+            __brand: VigorBrand<"Core", "Symbol_Default">;
+        };
+        readonly error: symbol & {
+            __brand: VigorBrand<"Core", "Symbol_Default">;
+        };
+        readonly system: {
+            readonly delay: symbol & {
+                __brand: VigorBrand<"Core", "Symbol_Default">;
+            };
+            readonly attempt: 0;
+        };
+        readonly flags: {
+            readonly doRetry: true;
+            readonly doRestart: false;
+            readonly brokeRetry: false;
+            readonly overridden: false;
+        };
+        readonly record: {};
+        readonly policy: {
+            readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+            readonly target: symbol & {
+                __brand: VigorBrand<"Core", "Symbol_Empty">;
+            };
+            readonly abortSignals: [];
+            readonly settings: {
+                readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                readonly default: symbol & {
+                    __brand: VigorBrand<"Core", "Symbol_Empty">;
+                };
+                readonly maxAttempts: 5;
+                readonly maxRestarts: 3;
+                readonly timeout: 20000;
+            };
+            readonly middlewares: {
+                readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                readonly before: [];
+                readonly after: [];
+                readonly onResult: [];
+                readonly retryIf: [];
+                readonly onRetry: [];
+                readonly onError: [];
+            };
+            readonly algorithms: {
+                readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                readonly _tag: "constant";
+                readonly jitter: 1000;
+                readonly interval: 2000;
+                readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+            };
+        };
+    };
+};
+/**
+ * Immutable builder that executes a target function with retry, restart,
+ * timeout, and abort support, driven by a configurable delay algorithm and
+ * middleware pipeline.
+ */
+declare class VigorRetry<T extends VigorRetrySchema<T> = typeof VigorRetryBase> extends VigorStatus<VigorRetrySchema<T>, T, VigorRetryTypeLambda> {
+    constructor(config?: T);
+    protected _create<C>(config: C): VigorApply<VigorRetryTypeLambda, C>;
+    /** Sets the target function to invoke, with retry/timeout applied. */
+    target<const N extends VigorExcludeEmpty<VigorRetrySchema<T>["policy"]["target"]>>(func: N): VigorRetry<VigorRetryIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly target: N;
+        };
+    }>>>;
+    /** Sets external abort signals that, when aborted, stop retrying. */
+    abortSignals<const N extends VigorRetrySchema<T>["policy"]["abortSignals"]>(...sig: N): VigorRetry<VigorRetryIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly abortSignals: N;
+        };
+    }>>>;
+    /** Configures the retry policy's general settings (max attempts, timeout, etc). */
+    settings<const N extends VigorDeepPartial<VigorRetryPolicySettingsSchema<T>>, R extends VigorRetrySchema<any>>(input: N | ((s: VigorRetryPolicySettings<T>) => VigorRetryPolicySettings<R>) | VigorRetryPolicySettings<R>): VigorRetry<VigorRetryIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: VigorRetryPolicySettingsSchema<any>;
+        };
+    }>>>;
+    /** Configures the retry policy's middleware pipeline. */
+    middlewares<const N extends VigorDeepPartial<VigorRetryPolicyMiddlewaresSchema<T>>, R extends VigorRetrySchema<any>>(input: N | ((s: VigorRetryPolicyMiddlewares<T>) => VigorRetryPolicyMiddlewares<R>) | VigorRetryPolicyMiddlewares<R>): VigorRetry<VigorRetryIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly middlewares: VigorRetryPolicyMiddlewaresSchema<any>;
+        };
+    }>>>;
+    /** Configures the retry policy's delay algorithm. */
+    algorithms<const N extends VigorDeepPartial<VigorRetryPolicyAlgorithmsSchema<T>>, R extends VigorRetrySchema<any>>(input: N | ((a: VigorRetryPolicyAlgorithms<T>) => VigorRetryPolicyAlgorithms<R> | VigorRetryPolicyAlgorithmsConstant<any>)): VigorRetry<VigorRetryIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly algorithms: any;
+        };
+    }>>>;
+    /** Runs the target and returns its result directly, throwing on final failure. */
+    request<R = T["context"]["result"]>(): Promise<R>;
+    /** Runs the target and returns a result/error envelope instead of throwing. */
+    requestVerbose<R = T["context"]["result"]>(): Promise<{
+        success: false;
+        data: null;
+        error: unknown;
+    } | {
+        success: true;
+        data: R;
+        error: null;
+    }>;
+    /** Internal execution loop implementing the attempt/retry/restart lifecycle. */
+    private requestRuntime;
+}
+
+type VigorRetryIn<T> = T extends VigorRetrySchema<any> ? T : never;
+type VigorRetryAlgorithmsConstantIn<T> = T extends VigorRetryPolicyAlgorithmsConstantSchema<any> ? T : never;
+type VigorRetryAlgorithmsLinearIn<T> = T extends VigorRetryPolicyAlgorithmsLinearSchema<any> ? T : never;
+type VigorRetryAlgorithmsBackoffIn<T> = T extends VigorRetryPolicyAlgorithmsBackoffSchema<any> ? T : never;
+type VigorRetryAlgorithmsCustomIn<T> = T extends VigorRetryPolicyAlgorithmsCustomSchema<any> ? T : never;
+interface VigorRetryTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorRetry<VigorRetryIn<this["In"]>>;
+}
+interface VigorRetryPolicySettingsTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorRetryPolicySettings<VigorRetryIn<this["In"]>>;
+}
+interface VigorRetryPolicyMiddlewaresTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorRetryPolicyMiddlewares<VigorRetryIn<this["In"]>>;
+}
+interface VigorRetryPolicyAlgorithmsTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorRetryPolicyAlgorithms<VigorRetryIn<this["In"]>>;
+}
+interface VigorRetryPolicyAlgorithmsConstantTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorRetryPolicyAlgorithmsConstant<VigorRetryAlgorithmsConstantIn<this["In"]>>;
+}
+interface VigorRetryPolicyAlgorithmsLinearTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorRetryPolicyAlgorithmsLinear<VigorRetryAlgorithmsLinearIn<this["In"]>>;
+}
+interface VigorRetryPolicyAlgorithmsBackoffTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorRetryPolicyAlgorithmsBackoff<VigorRetryAlgorithmsBackoffIn<this["In"]>>;
+}
+interface VigorRetryPolicyAlgorithmsCustomTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorRetryPolicyAlgorithmsCustom<VigorRetryAlgorithmsCustomIn<this["In"]>>;
+}
+
 /** Returns a random offset in the range `[-jitter, +jitter]` to randomize a computed delay. */
 declare function VigorJitter(jitter: number): number;
 type VigorRetryPolicyAlgorithmsConstantSchema<T extends VigorRetryPolicyAlgorithmsConstantSchema<T>> = {
@@ -1148,567 +1575,98 @@ declare class VigorRetryPolicyAlgorithms<T extends VigorRetrySchema<T> = typeof 
     }>>>;
 }
 
-type VigorRetryIn<T> = T extends VigorRetrySchema<any> ? T : never;
-type VigorRetryAlgorithmsConstantIn<T> = T extends VigorRetryPolicyAlgorithmsConstantSchema<any> ? T : never;
-type VigorRetryAlgorithmsLinearIn<T> = T extends VigorRetryPolicyAlgorithmsLinearSchema<any> ? T : never;
-type VigorRetryAlgorithmsBackoffIn<T> = T extends VigorRetryPolicyAlgorithmsBackoffSchema<any> ? T : never;
-type VigorRetryAlgorithmsCustomIn<T> = T extends VigorRetryPolicyAlgorithmsCustomSchema<any> ? T : never;
-interface VigorRetryTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorRetry<VigorRetryIn<this["In"]>>;
-}
-interface VigorRetryPolicySettingsTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorRetryPolicySettings<VigorRetryIn<this["In"]>>;
-}
-interface VigorRetryPolicyMiddlewaresTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorRetryPolicyMiddlewares<VigorRetryIn<this["In"]>>;
-}
-interface VigorRetryPolicyAlgorithmsTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorRetryPolicyAlgorithms<VigorRetryIn<this["In"]>>;
-}
-interface VigorRetryPolicyAlgorithmsConstantTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorRetryPolicyAlgorithmsConstant<VigorRetryAlgorithmsConstantIn<this["In"]>>;
-}
-interface VigorRetryPolicyAlgorithmsLinearTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorRetryPolicyAlgorithmsLinear<VigorRetryAlgorithmsLinearIn<this["In"]>>;
-}
-interface VigorRetryPolicyAlgorithmsBackoffTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorRetryPolicyAlgorithmsBackoff<VigorRetryAlgorithmsBackoffIn<this["In"]>>;
-}
-interface VigorRetryPolicyAlgorithmsCustomTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorRetryPolicyAlgorithmsCustom<VigorRetryAlgorithmsCustomIn<this["In"]>>;
-}
-
-type VigorRetryContextSchema<T extends VigorRetrySchema<T>> = {
-    __brand: VigorBrand<"Retry", "Context<Schema">;
-    result: VigorRetryPipeResult<T> | VigorDefaultType;
-    error: unknown;
-    system: {
-        delay: number | VigorDefaultType;
-        attempt: number;
-    };
-    flags: {
-        doRetry: boolean;
-        doRestart: boolean;
-        brokeRetry: boolean;
-        overridden: boolean;
-    };
-    record: Record<string, any>;
-    policy: T["policy"];
-};
-
-type VigorRetryPolicySchema<T extends VigorRetrySchema<T>> = {
-    __brand: VigorBrand<"Retry", "Policy<Schema">;
-    target: ((signal: AbortSignal) => any | Promise<any>) | VigorEmptyType;
-    abortSignals: AbortSignal[];
-    settings: VigorRetryPolicySettingsSchema<T>;
-    middlewares: VigorRetryPolicyMiddlewaresSchema<T>;
-    algorithms: VigorRetryPolicyAlgorithmsSchema<T>;
-};
-declare const VigorRetryPolicyBase: {
-    readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
-    readonly target: symbol & {
-        __brand: VigorBrand<"Core", "Symbol_Empty">;
-    };
-    readonly abortSignals: [];
-    readonly settings: {
-        readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
-        readonly default: symbol & {
-            __brand: VigorBrand<"Core", "Symbol_Empty">;
-        };
-        readonly maxAttempts: 5;
-        readonly maxRestarts: 3;
-        readonly timeout: 20000;
-    };
-    readonly middlewares: {
-        readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
-        readonly before: [];
-        readonly after: [];
-        readonly onResult: [];
-        readonly retryIf: [];
-        readonly onRetry: [];
-        readonly onError: [];
-    };
-    readonly algorithms: {
-        readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
-        readonly _tag: "constant";
-        readonly jitter: 1000;
-        readonly interval: 2000;
-        readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
-    };
-};
-
-type VigorRetrySchema<T extends VigorRetrySchema<T>> = {
-    __brand: VigorBrand<"Retry", "Schema">;
-    policy: VigorRetryPolicySchema<T>;
-    context: VigorRetryContextSchema<T>;
-};
-declare const VigorRetryBase: {
-    readonly __brand: VigorBrand<"Retry", "Schema">;
-    readonly policy: {
-        readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
-        readonly target: symbol & {
-            __brand: VigorBrand<"Core", "Symbol_Empty">;
-        };
-        readonly abortSignals: [];
-        readonly settings: {
-            readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
-            readonly default: symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Empty">;
-            };
-            readonly maxAttempts: 5;
-            readonly maxRestarts: 3;
-            readonly timeout: 20000;
-        };
-        readonly middlewares: {
-            readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
-            readonly before: [];
-            readonly after: [];
-            readonly onResult: [];
-            readonly retryIf: [];
-            readonly onRetry: [];
-            readonly onError: [];
-        };
-        readonly algorithms: {
-            readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
-            readonly _tag: "constant";
-            readonly jitter: 1000;
-            readonly interval: 2000;
-            readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
-        };
-    };
-    readonly context: {
-        readonly __brand: VigorBrand<"Retry", "Context<Schema">;
-        readonly result: symbol & {
-            __brand: VigorBrand<"Core", "Symbol_Default">;
-        };
-        readonly error: symbol & {
-            __brand: VigorBrand<"Core", "Symbol_Default">;
-        };
-        readonly system: {
-            readonly delay: symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            };
-            readonly attempt: 0;
-        };
-        readonly flags: {
-            readonly doRetry: true;
-            readonly doRestart: false;
-            readonly brokeRetry: false;
-            readonly overridden: false;
-        };
-        readonly record: {};
-        readonly policy: {
-            readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
-            readonly target: symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Empty">;
-            };
-            readonly abortSignals: [];
-            readonly settings: {
-                readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
-                readonly default: symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Empty">;
-                };
-                readonly maxAttempts: 5;
-                readonly maxRestarts: 3;
-                readonly timeout: 20000;
-            };
-            readonly middlewares: {
-                readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
-                readonly before: [];
-                readonly after: [];
-                readonly onResult: [];
-                readonly retryIf: [];
-                readonly onRetry: [];
-                readonly onError: [];
-            };
-            readonly algorithms: {
-                readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
-                readonly _tag: "constant";
-                readonly jitter: 1000;
-                readonly interval: 2000;
-                readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
-            };
-        };
-    };
-};
-/**
- * Immutable builder that executes a target function with retry, restart,
- * timeout, and abort support, driven by a configurable delay algorithm and
- * middleware pipeline.
- */
-declare class VigorRetry<T extends VigorRetrySchema<T> = typeof VigorRetryBase> extends VigorStatus<VigorRetrySchema<T>, T, VigorRetryTypeLambda> {
-    constructor(config?: T);
-    protected _create<C>(config: C): VigorApply<VigorRetryTypeLambda, C>;
-    /** Sets the target function to invoke, with retry/timeout applied. */
-    target<const N extends VigorExcludeEmpty<VigorRetrySchema<T>["policy"]["target"]>>(func: N): VigorRetry<VigorRetryIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly target: N;
-        };
-    }>>>;
-    /** Sets external abort signals that, when aborted, stop retrying. */
-    abortSignals<const N extends VigorRetrySchema<T>["policy"]["abortSignals"]>(...sig: N): VigorRetry<VigorRetryIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly abortSignals: N;
-        };
-    }>>>;
-    /** Configures the retry policy's general settings (max attempts, timeout, etc). */
-    settings<const N extends VigorDeepPartial<VigorRetryPolicySettingsSchema<T>>, R extends VigorRetrySchema<any>>(input: N | ((s: VigorRetryPolicySettings<T>) => VigorRetryPolicySettings<R>) | VigorRetryPolicySettings<R>): VigorRetry<VigorRetryIn<VigorDeepMerge<T, {
-        __brand?: VigorBrand<"Retry", "Schema"> | undefined;
-        policy?: {
-            __brand?: VigorBrand<"Retry", "Policy<Schema"> | undefined;
-            target?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Empty">;
-            }) | ((signal: AbortSignal) => any | Promise<any>) | undefined;
-            abortSignals?: readonly {
-                readonly aborted?: boolean | undefined;
-                onabort?: ((this: AbortSignal, ev: Event) => any) | null | undefined;
-                readonly reason?: any;
-                throwIfAborted?: (() => void) | undefined;
-                addEventListener?: {
-                    <K extends keyof AbortSignalEventMap>(type: K, listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
-                    (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
-                } | undefined;
-                removeEventListener?: {
-                    <K extends keyof AbortSignalEventMap>(type: K, listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
-                    (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
-                } | undefined;
-                dispatchEvent?: ((event: Event) => boolean) | undefined;
-            }[] | undefined;
-            settings?: {
-                __brand?: VigorBrand<"Retry", "Policy<Settings<Schema"> | undefined;
-                default?: (symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Empty">;
-                }) | ((ctx: any) => any | Promise<any>) | undefined;
-                maxAttempts?: number | undefined;
-                maxRestarts?: number | undefined;
-                timeout?: number | undefined;
-            } | undefined;
-            middlewares?: {
-                __brand?: VigorBrand<"Retry", "Policy<Middlewares<Schema"> | undefined;
-                before?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "abort" | "throwError" | "breakRetry">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                after?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onResult?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((res: any) => VigorRetrySchema<any>["context"]["result"]) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                retryIf?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((err: any) => VigorRetrySchema<any>["context"]["flags"]["doRetry"]) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "proceedRetry" | "cancelRetry">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onRetry?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((err: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError" | "setDelay">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onError?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((err: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError" | "setResult" | "proceedRestart" | "cancelRestart">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                })[] | undefined;
-            } | undefined;
-            algorithms?: {
-                __brand?: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema"> | undefined;
-                _tag?: "constant" | undefined;
-                jitter?: number | undefined;
-                interval?: number | undefined;
-                _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-            } | {
-                __brand?: VigorBrand<"Retry", "Policy<Algorithms<Linear<Schema"> | undefined;
-                _tag?: "linear" | undefined;
-                jitter?: number | undefined;
-                initial?: number | undefined;
-                increment?: number | undefined;
-                minDelay?: number | undefined;
-                maxDelay?: number | undefined;
-                _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsLinearSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-            } | {
-                __brand?: VigorBrand<"Retry", "Policy<Algorithms<Backoff<Schema"> | undefined;
-                _tag?: "backoff" | undefined;
-                jitter?: number | undefined;
-                initial?: number | undefined;
-                multiplier?: number | undefined;
-                unit?: number | undefined;
-                minDelay?: number | undefined;
-                maxDelay?: number | undefined;
-                _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsBackoffSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-            } | {
-                __brand?: VigorBrand<"Retry", "Policy<Algorithms<Custom<Schema"> | undefined;
-                _tag?: "custom" | undefined;
-                jitter?: number | undefined;
-                minDelay?: number | undefined;
-                maxDelay?: number | undefined;
-                target?: (symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Empty">;
-                }) | ((att: number) => number) | undefined;
-                _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsCustomSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-            } | undefined;
-        } | undefined;
-        context?: {
-            __brand?: VigorBrand<"Retry", "Context<Schema"> | undefined;
-            result?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | undefined;
-            error?: unknown;
-            system?: {
-                delay?: number | (symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Default">;
-                }) | undefined;
-                attempt?: number | undefined;
-            } | undefined;
-            flags?: {
-                doRetry?: boolean | undefined;
-                doRestart?: boolean | undefined;
-                brokeRetry?: boolean | undefined;
-                overridden?: boolean | undefined;
-            } | undefined;
-            record?: {
-                [x: string]: any;
-            } | undefined;
-            policy?: any;
-        } | undefined;
-    }>>>;
-    /** Configures the retry policy's middleware pipeline. */
-    middlewares<const N extends VigorDeepPartial<VigorRetryPolicyMiddlewaresSchema<T>>, R extends VigorRetrySchema<any>>(input: N | ((s: VigorRetryPolicyMiddlewares<T>) => VigorRetryPolicyMiddlewares<R>) | VigorRetryPolicyMiddlewares<R>): VigorRetry<VigorRetryIn<VigorDeepMerge<T, {
-        __brand?: VigorBrand<"Retry", "Schema"> | undefined;
-        policy?: {
-            __brand?: VigorBrand<"Retry", "Policy<Schema"> | undefined;
-            target?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Empty">;
-            }) | ((signal: AbortSignal) => any | Promise<any>) | undefined;
-            abortSignals?: readonly {
-                readonly aborted?: boolean | undefined;
-                onabort?: ((this: AbortSignal, ev: Event) => any) | null | undefined;
-                readonly reason?: any;
-                throwIfAborted?: (() => void) | undefined;
-                addEventListener?: {
-                    <K extends keyof AbortSignalEventMap>(type: K, listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
-                    (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
-                } | undefined;
-                removeEventListener?: {
-                    <K extends keyof AbortSignalEventMap>(type: K, listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
-                    (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
-                } | undefined;
-                dispatchEvent?: ((event: Event) => boolean) | undefined;
-            }[] | undefined;
-            settings?: {
-                __brand?: VigorBrand<"Retry", "Policy<Settings<Schema"> | undefined;
-                default?: (symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Empty">;
-                }) | ((ctx: any) => any | Promise<any>) | undefined;
-                maxAttempts?: number | undefined;
-                maxRestarts?: number | undefined;
-                timeout?: number | undefined;
-            } | undefined;
-            middlewares?: {
-                __brand?: VigorBrand<"Retry", "Policy<Middlewares<Schema"> | undefined;
-                before?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "abort" | "throwError" | "breakRetry">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                after?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onResult?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((res: any) => VigorRetrySchema<any>["context"]["result"]) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                retryIf?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((err: any) => VigorRetrySchema<any>["context"]["flags"]["doRetry"]) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "proceedRetry" | "cancelRetry">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onRetry?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((err: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError" | "setDelay">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onError?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((err: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError" | "setResult" | "proceedRestart" | "cancelRestart">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                })[] | undefined;
-            } | undefined;
-            algorithms?: {
-                __brand?: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema"> | undefined;
-                _tag?: "constant" | undefined;
-                jitter?: number | undefined;
-                interval?: number | undefined;
-                _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-            } | {
-                __brand?: VigorBrand<"Retry", "Policy<Algorithms<Linear<Schema"> | undefined;
-                _tag?: "linear" | undefined;
-                jitter?: number | undefined;
-                initial?: number | undefined;
-                increment?: number | undefined;
-                minDelay?: number | undefined;
-                maxDelay?: number | undefined;
-                _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsLinearSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-            } | {
-                __brand?: VigorBrand<"Retry", "Policy<Algorithms<Backoff<Schema"> | undefined;
-                _tag?: "backoff" | undefined;
-                jitter?: number | undefined;
-                initial?: number | undefined;
-                multiplier?: number | undefined;
-                unit?: number | undefined;
-                minDelay?: number | undefined;
-                maxDelay?: number | undefined;
-                _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsBackoffSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-            } | {
-                __brand?: VigorBrand<"Retry", "Policy<Algorithms<Custom<Schema"> | undefined;
-                _tag?: "custom" | undefined;
-                jitter?: number | undefined;
-                minDelay?: number | undefined;
-                maxDelay?: number | undefined;
-                target?: (symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Empty">;
-                }) | ((att: number) => number) | undefined;
-                _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsCustomSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-            } | undefined;
-        } | undefined;
-        context?: {
-            __brand?: VigorBrand<"Retry", "Context<Schema"> | undefined;
-            result?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | undefined;
-            error?: unknown;
-            system?: {
-                delay?: number | (symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Default">;
-                }) | undefined;
-                attempt?: number | undefined;
-            } | undefined;
-            flags?: {
-                doRetry?: boolean | undefined;
-                doRestart?: boolean | undefined;
-                brokeRetry?: boolean | undefined;
-                overridden?: boolean | undefined;
-            } | undefined;
-            record?: {
-                [x: string]: any;
-            } | undefined;
-            policy?: any;
-        } | undefined;
-    }>>>;
-    /** Configures the retry policy's delay algorithm. */
-    algorithms<const N extends VigorDeepPartial<VigorRetryPolicyAlgorithmsSchema<T>>, R extends VigorRetrySchema<any>>(input: N | ((a: VigorRetryPolicyAlgorithms<T>) => VigorRetryPolicyAlgorithms<R> | VigorRetryPolicyAlgorithmsConstant<any>)): VigorRetry<VigorRetryIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly algorithms: any;
-        };
-    }>>>;
-    /** Runs the target and returns its result directly, throwing on final failure. */
-    request<R = T["context"]["result"]>(): Promise<R>;
-    /** Runs the target and returns a result/error envelope instead of throwing. */
-    requestVerbose<R = T["context"]["result"]>(): Promise<{
-        success: false;
-        data: null;
-        error: unknown;
-    } | {
-        success: true;
-        data: R;
-        error: null;
-    }>;
-    /** Internal execution loop implementing the attempt/retry/restart lifecycle. */
-    private requestRuntime;
-}
-
-type VigorParsePolicySettingsSchema<T extends VigorParseSchema<T>> = {
-    __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
-    raw: boolean;
-    default: ((ctx: T["context"]) => any | Promise<any>) | VigorEmptyType;
+type VigorFetchPolicySettingsSchema<T extends VigorFetchSchema<T>> = {
+    __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
+    retryHeaders: string[];
+    unretryStatus: number[];
     maxRestarts: number;
+    default: ((ctx: T["context"]) => any | Promise<any>) | VigorEmptyType;
 };
-declare const VigorParsePolicySettingsBase: {
-    readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
-    readonly raw: false;
+declare const VigorFetchPolicySettingsBase: {
+    readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
+    readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"];
+    readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
+    readonly maxRestarts: 3;
     readonly default: symbol & {
         __brand: VigorBrand<"Core", "Symbol_Empty">;
     };
-    readonly maxRestarts: 3;
 };
-/** Immutable builder for a parse policy's general settings. */
-declare class VigorParsePolicySettings<T extends VigorParseSchema<T> = typeof VigorParseBase> extends VigorStatus<VigorParseSchema<any>, T, VigorParsePolicySettingsTypeLambda> {
+/** Immutable builder for a fetch policy's general settings. */
+declare class VigorFetchPolicySettings<T extends VigorFetchSchema<T> = typeof VigorFetchBase> extends VigorStatus<VigorFetchSchema<any>, T, VigorFetchPolicySettingsTypeLambda> {
     constructor(config?: T);
-    protected _create<C>(config: C): VigorApply<VigorParsePolicySettingsTypeLambda, C>;
-    /** When enabled, skips content-type based parsing and returns the raw response. */
-    raw<const N extends VigorParseSchema<any>["policy"]["settings"]["raw"]>(bool: N): VigorParsePolicySettings<VigorParseIn<VigorDeepMerge<T, {
+    protected _create<C>(config: C): VigorApply<VigorFetchPolicySettingsTypeLambda, C>;
+    /** Sets response headers consulted to compute a server-suggested retry delay. */
+    retryHeaders<const N extends VigorFetchSchema<any>["policy"]["settings"]["retryHeaders"]>(...strs: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
         readonly policy: {
             readonly settings: {
-                readonly raw: N;
+                readonly retryHeaders: N;
             };
         };
     }>>>;
-    /** Sets the fallback value/factory used when parsing ultimately fails. */
-    default<const N extends VigorExcludeEmpty<VigorParseSchema<any>["policy"]["settings"]["default"]>>(func: N): VigorParsePolicySettings<VigorParseIn<VigorDeepMerge<T, {
+    /** Sets HTTP status codes that should never be retried. */
+    unretryStatus<const N extends VigorFetchSchema<any>["policy"]["settings"]["unretryStatus"]>(...nums: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
         readonly policy: {
             readonly settings: {
-                readonly default: N;
+                readonly unretryStatus: N;
             };
         };
     }>>>;
     /** Sets the maximum number of full restarts allowed. */
-    maxRestarts<const N extends VigorParseSchema<any>["policy"]["settings"]["maxRestarts"]>(num: N): VigorParsePolicySettings<VigorParseIn<VigorDeepMerge<T, {
+    maxRestarts<const N extends VigorFetchSchema<any>["policy"]["settings"]["maxRestarts"]>(num: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
         readonly policy: {
             readonly settings: {
                 readonly maxRestarts: N;
             };
         };
     }>>>;
+    /** Sets the fallback value/factory used when the request ultimately fails. */
+    default<const N extends VigorExcludeEmpty<VigorFetchSchema<any>["policy"]["settings"]["default"]>>(func: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly default: N;
+            };
+        };
+    }>>>;
 }
 
-type VigorParsePolicyMiddlewaresSchema<T extends VigorParseSchema<T>> = {
-    __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
-    before: (VigorParsePolicyMiddlewaresFluent<T>["before"] | VigorParsePolicyMiddlewaresIntercept<T>["before"])[];
-    after: (VigorParsePolicyMiddlewaresFluent<T>["after"] | VigorParsePolicyMiddlewaresIntercept<T>["after"])[];
-    onResult: (VigorParsePolicyMiddlewaresFluent<T>["onResult"] | VigorParsePolicyMiddlewaresIntercept<T>["onResult"])[];
-    onError: (VigorParsePolicyMiddlewaresFluent<T>["onError"] | VigorParsePolicyMiddlewaresIntercept<T>["onError"])[];
+type VigorFetchExtraOptions = Omit<RequestInit, "method" | "headers" | "body" | "signal">;
+type VigorFetchOptions = VigorFetchExtraOptions & {
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "CONNECT" | "TRACE";
+    headers: Record<string, string>;
+    body?: BodyInit | null;
+    signal?: AbortSignal;
 };
-declare const VigorParsePolicyMiddlewaresBase: {
-    readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+type VigorFetchContextSchema<T extends VigorFetchSchema<T>> = {
+    __brand: VigorBrand<"Fetch", "Context<Schema">;
+    href: string;
+    response: Response | VigorDefaultType;
+    result: unknown | VigorDefaultType;
+    error: unknown;
+    options: VigorFetchOptions | VigorDefaultType;
+    flags: {
+        overrided: boolean;
+        restarted: boolean;
+    };
+    record: Record<string, any>;
+    policy: T["policy"];
+};
+
+type VigorFetchPolicyMiddlewaresSchema<T extends VigorFetchSchema<T>> = {
+    __brand: VigorBrand<"Fetch", "Policy<Middlewares<Schema">;
+    before: (VigorFetchPolicyMiddlewaresFluent<T>["before"] | VigorFetchPolicyMiddlewaresIntercept<T>["before"])[];
+    after: (VigorFetchPolicyMiddlewaresFluent<T>["after"] | VigorFetchPolicyMiddlewaresIntercept<T>["after"])[];
+    onResult: (VigorFetchPolicyMiddlewaresFluent<T>["onResult"] | VigorFetchPolicyMiddlewaresIntercept<T>["onResult"])[];
+    onError: (VigorFetchPolicyMiddlewaresFluent<T>["onError"] | VigorFetchPolicyMiddlewaresIntercept<T>["onError"])[];
+};
+declare const VigorFetchPolicyMiddlewaresBase: {
+    readonly __brand: VigorBrand<"Fetch", "Policy<Middlewares<Schema">;
     readonly before: [];
     readonly after: [];
     readonly onResult: [];
     readonly onError: [];
 };
-type VigorParsePolicyMiddlewaresFluent<T extends VigorParseSchema<T>> = {
-    __brand: VigorBrand<"Parse", "Policy<Middlewares<Fluent<Schema">;
+type VigorFetchPolicyMiddlewaresFluent<T extends VigorFetchSchema<T>> = {
+    __brand: VigorBrand<"Fetch", "Policy<Middlewares<Fluent<Schema">;
     before: {
         _mode: "fluent";
         func: (ctx: T["context"]) => void;
@@ -1719,49 +1677,52 @@ type VigorParsePolicyMiddlewaresFluent<T extends VigorParseSchema<T>> = {
     };
     onResult: {
         _mode: "fluent";
-        func: (res: T["context"]["result"]) => VigorParseSchema<any>["context"]["result"];
+        func: (res: T["context"]["result"]) => VigorFetchSchema<any>["context"]["result"];
     };
     onError: {
         _mode: "fluent";
         func: (err: T["context"]["error"]) => void;
     };
 };
-type VigorParsePolicyMiddlewaresApi<T extends VigorParseSchema<T>> = {
-    setResult: (res: VigorParseSchema<any>["context"]["result"]) => void;
-    throwError: (err: VigorParseSchema<any>["context"]["error"]) => void;
+type VigorFetchPolicyMiddlewaresApi<T extends VigorFetchSchema<T>> = {
+    setResult: (res: VigorFetchSchema<any>["context"]["result"]) => void;
+    throwError: (err: VigorFetchSchema<any>["context"]["error"]) => void;
+    setOptions: (opts: VigorFetchOptions) => void;
+    setHeaders: (headers: VigorFetchOptions["headers"]) => void;
+    setBody: (body: VigorFetchOptions["body"]) => void;
     proceedRestart: () => void;
     cancelRestart: () => void;
 };
-type VigorParsePolicyMiddlewaresIntercept<T extends VigorParseSchema<T>> = {
-    __brand: VigorBrand<"Parse", "Policy<Middlewares<Intercept<Schema">;
+type VigorFetchPolicyMiddlewaresIntercept<T extends VigorFetchSchema<T>> = {
+    __brand: VigorBrand<"Fetch", "Policy<Middlewares<Intercept<Schema">;
     before: {
         _mode: "intercept";
-        func: (ctx: T["context"], api: Pick<VigorParsePolicyMiddlewaresApi<T>, "throwError">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>;
+        func: (ctx: T["context"], api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "throwError" | "setOptions" | "setHeaders" | "setBody">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>;
     };
     after: {
         _mode: "intercept";
-        func: (ctx: T["context"], api: Pick<VigorParsePolicyMiddlewaresApi<T>, "setResult" | "throwError">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>;
+        func: (ctx: T["context"], api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult" | "throwError">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>;
     };
     onResult: {
         _mode: "intercept";
-        func: (ctx: T["context"], api: Pick<VigorParsePolicyMiddlewaresApi<T>, "setResult" | "throwError">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>;
+        func: (ctx: T["context"], api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult" | "throwError">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>;
     };
     onError: {
         _mode: "intercept";
-        func: (ctx: T["context"], api: Pick<VigorParsePolicyMiddlewaresApi<T>, "setResult" | "throwError" | "proceedRestart" | "cancelRestart">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>;
+        func: (ctx: T["context"], api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult" | "throwError" | "proceedRestart" | "cancelRestart">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>;
     };
 };
 /**
- * Immutable builder for a parse policy's middleware pipeline (`before`,
+ * Immutable builder for a fetch policy's middleware pipeline (`before`,
  * `after`, `onResult`, `onError`). Each stage accepts either "fluent"
  * middleware (returns a plain value merged into the context) or
  * "intercept" middleware (receives an explicit API to mutate control flow).
  */
-declare class VigorParsePolicyMiddlewares<T extends VigorParseSchema<T> = typeof VigorParseBase> extends VigorStatus<VigorParseSchema<any>, T, VigorParsePolicyMiddlewaresTypeLambda> {
+declare class VigorFetchPolicyMiddlewares<T extends VigorFetchSchema<T> = typeof VigorFetchBase> extends VigorStatus<VigorFetchSchema<any>, T, VigorFetchPolicyMiddlewaresTypeLambda> {
     constructor(config?: T);
-    protected _create<C>(config: C): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, C>;
-    /** Registers a middleware that runs before the response is parsed. */
-    before<const N extends VigorParsePolicyMiddlewaresFluent<any>["before"]["func"]>(type: "fluent", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    protected _create<C>(config: C): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, C>;
+    /** Registers a middleware that runs before the request is sent. */
+    before<const N extends VigorFetchPolicyMiddlewaresFluent<any>["before"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 before: [{
@@ -1771,7 +1732,7 @@ declare class VigorParsePolicyMiddlewares<T extends VigorParseSchema<T> = typeof
             };
         };
     }>>;
-    before<const N extends VigorParsePolicyMiddlewaresIntercept<any>["before"]["func"]>(type: "intercept", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    before<const N extends VigorFetchPolicyMiddlewaresIntercept<any>["before"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 before: [{
@@ -1781,8 +1742,8 @@ declare class VigorParsePolicyMiddlewares<T extends VigorParseSchema<T> = typeof
             };
         };
     }>>;
-    /** Registers a middleware that runs after the response has been parsed. */
-    after<const N extends VigorParsePolicyMiddlewaresFluent<any>["after"]["func"]>(type: "fluent", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    /** Registers a middleware that runs after the response is received. */
+    after<const N extends VigorFetchPolicyMiddlewaresFluent<any>["after"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 after: [{
@@ -1792,7 +1753,7 @@ declare class VigorParsePolicyMiddlewares<T extends VigorParseSchema<T> = typeof
             };
         };
     }>>;
-    after<const N extends VigorParsePolicyMiddlewaresIntercept<any>["after"]["func"]>(type: "intercept", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    after<const N extends VigorFetchPolicyMiddlewaresIntercept<any>["after"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 after: [{
@@ -1803,7 +1764,7 @@ declare class VigorParsePolicyMiddlewares<T extends VigorParseSchema<T> = typeof
         };
     }>>;
     /** Registers a middleware that transforms or validates the parsed result. */
-    onResult<const N extends VigorParsePolicyMiddlewaresFluent<any>["onResult"]["func"]>(type: "fluent", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    onResult<const N extends VigorFetchPolicyMiddlewaresFluent<any>["onResult"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 onResult: [{
@@ -1813,7 +1774,7 @@ declare class VigorParsePolicyMiddlewares<T extends VigorParseSchema<T> = typeof
             };
         };
     }>>;
-    onResult<const N extends VigorParsePolicyMiddlewaresIntercept<any>["onResult"]["func"]>(type: "intercept", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    onResult<const N extends VigorFetchPolicyMiddlewaresIntercept<any>["onResult"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 onResult: [{
@@ -1823,8 +1784,8 @@ declare class VigorParsePolicyMiddlewares<T extends VigorParseSchema<T> = typeof
             };
         };
     }>>;
-    /** Registers a middleware that runs when parsing ultimately fails. */
-    onError<const N extends VigorParsePolicyMiddlewaresFluent<any>["onError"]["func"]>(type: "fluent", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    /** Registers a middleware that runs when the request ultimately fails. */
+    onError<const N extends VigorFetchPolicyMiddlewaresFluent<any>["onError"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 onError: [{
@@ -1834,7 +1795,7 @@ declare class VigorParsePolicyMiddlewares<T extends VigorParseSchema<T> = typeof
             };
         };
     }>>;
-    onError<const N extends VigorParsePolicyMiddlewaresIntercept<any>["onError"]["func"]>(type: "intercept", func: N): VigorApply<VigorParsePolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+    onError<const N extends VigorFetchPolicyMiddlewaresIntercept<any>["onError"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: {
             middlewares: {
                 onError: [{
@@ -1846,703 +1807,15 @@ declare class VigorParsePolicyMiddlewares<T extends VigorParseSchema<T> = typeof
     }>>;
 }
 
-type VigorParseStrategyFunc = (response: Response) => Promise<any>;
-type VigorParsePolicyStrategiesSchema<T extends VigorParseSchema<T>> = {
-    __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
-    funcs: Array<VigorParseStrategyFunc>;
-};
-declare const VigorParsePolicyStrategiesBase: {
-    readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
-    readonly funcs: VigorParseStrategyFunc[];
-};
-/** Parses a response by matching its `Content-Type` header against a known parser table. */
-declare const VigorParseContentTypeStrategy: VigorParseStrategyFunc;
-/** Parses a response by trying a sequence of body-reading methods until one succeeds. */
-declare const VigorParseSniffStrategy: VigorParseStrategyFunc;
-/** Immutable builder for a parse policy's fallback chain of parsing strategies. */
-declare class VigorParsePolicyStrategies<T extends VigorParseSchema<T> = typeof VigorParseBase> extends VigorStatus<VigorParseSchema<any>, T, VigorParsePolicyStrategiesTypeLambda> {
-    constructor(config?: T);
-    protected _create<C>(config: C): VigorApply<VigorParsePolicyStrategiesTypeLambda, C>;
-    /**
-     * Adds strategy functions to the fallback chain.
-     *
-     * @param replace - When `true`, replaces the existing chain instead of
-     *  appending to it (the default is to concat, since strategies are
-     *  tried in sequence as a fallback chain).
-     */
-    private _set;
-    /** Adds the content-type based parsing strategy. */
-    contentType(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly strategies: {
-                readonly funcs: VigorParseStrategyFunc[];
-            };
-        };
-    }>>>;
-    /** Adds the sniffing (try-each-method) parsing strategy. */
-    sniff(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly strategies: {
-                readonly funcs: VigorParseStrategyFunc[];
-            };
-        };
-    }>>>;
-    /** Adds a strategy that always parses the response as JSON. */
-    json(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly strategies: {
-                readonly funcs: VigorParseStrategyFunc[];
-            };
-        };
-    }>>>;
-    /** Adds a strategy that always parses the response as text. */
-    text(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly strategies: {
-                readonly funcs: VigorParseStrategyFunc[];
-            };
-        };
-    }>>>;
-    /** Adds a strategy that always parses the response as an `ArrayBuffer`. */
-    arrayBuffer(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly strategies: {
-                readonly funcs: VigorParseStrategyFunc[];
-            };
-        };
-    }>>>;
-    /** Adds a strategy that always parses the response as a `Blob`. */
-    blob(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly strategies: {
-                readonly funcs: VigorParseStrategyFunc[];
-            };
-        };
-    }>>>;
-    /** Adds a strategy that always parses the response as a `Uint8Array`. */
-    bytes(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly strategies: {
-                readonly funcs: VigorParseStrategyFunc[];
-            };
-        };
-    }>>>;
-    /** Adds a strategy that always parses the response as `FormData`. */
-    formData(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly strategies: {
-                readonly funcs: VigorParseStrategyFunc[];
-            };
-        };
-    }>>>;
-    /** Adds a user-supplied custom parsing strategy. */
-    custom<const N extends VigorParseStrategyFunc>(func: N, replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly strategies: {
-                readonly funcs: VigorParseStrategyFunc[];
-            };
-        };
-    }>>>;
+type VigorFetchIn<T> = T extends VigorFetchSchema<any> ? T : never;
+interface VigorFetchTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorFetch<VigorFetchIn<this["In"]>>;
 }
-
-type VigorParseIn<T> = T extends VigorParseSchema<any> ? T : never;
-interface VigorParseTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorParse<VigorParseIn<this["In"]>>;
+interface VigorFetchPolicySettingsTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorFetchPolicySettings<VigorFetchIn<this["In"]>>;
 }
-interface VigorParsePolicySettingsTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorParsePolicySettings<VigorParseIn<this["In"]>>;
-}
-interface VigorParsePolicyMiddlewaresTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorParsePolicyMiddlewares<VigorParseIn<this["In"]>>;
-}
-interface VigorParsePolicyStrategiesTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorParsePolicyStrategies<VigorParseIn<this["In"]>>;
-}
-
-type VigorParseContextSchema<T extends VigorParseSchema<T>> = {
-    __brand: VigorBrand<"Parse", "Context<Schema">;
-    result: unknown | VigorDefaultType;
-    error: unknown;
-    response: Response | VigorDefaultType;
-    flags: {
-        overrided: boolean;
-        restarted: boolean;
-    };
-    record: Record<string, any>;
-    policy: T["policy"];
-};
-
-type VigorParsePolicySchema<T extends VigorParseSchema<T>> = {
-    __brand: VigorBrand<"Parse", "Policy<Schema">;
-    target: Response | VigorDefaultType;
-    settings: VigorParsePolicySettingsSchema<T>;
-    middlewares: VigorParsePolicyMiddlewaresSchema<T>;
-    strategies: VigorParsePolicyStrategiesSchema<T>;
-};
-declare const VigorParsePolicyBase: {
-    readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
-    readonly target: symbol & {
-        __brand: VigorBrand<"Core", "Symbol_Default">;
-    };
-    readonly settings: {
-        readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
-        readonly raw: false;
-        readonly default: symbol & {
-            __brand: VigorBrand<"Core", "Symbol_Empty">;
-        };
-        readonly maxRestarts: 3;
-    };
-    readonly middlewares: {
-        readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
-        readonly before: [];
-        readonly after: [];
-        readonly onResult: [];
-        readonly onError: [];
-    };
-    readonly strategies: {
-        readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
-        readonly funcs: VigorParseStrategyFunc[];
-    };
-};
-
-type VigorParseSchema<T extends VigorParseSchema<T>> = {
-    __brand: VigorBrand<"Parse", "Schema">;
-    policy: VigorParsePolicySchema<T>;
-    context: VigorParseContextSchema<T>;
-};
-declare const VigorParseBase: {
-    readonly __brand: VigorBrand<"Parse", "Schema">;
-    readonly policy: {
-        readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
-        readonly target: symbol & {
-            __brand: VigorBrand<"Core", "Symbol_Default">;
-        };
-        readonly settings: {
-            readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
-            readonly raw: false;
-            readonly default: symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Empty">;
-            };
-            readonly maxRestarts: 3;
-        };
-        readonly middlewares: {
-            readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
-            readonly before: [];
-            readonly after: [];
-            readonly onResult: [];
-            readonly onError: [];
-        };
-        readonly strategies: {
-            readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
-            readonly funcs: VigorParseStrategyFunc[];
-        };
-    };
-    readonly context: {
-        readonly __brand: VigorBrand<"Parse", "Context<Schema">;
-        readonly result: symbol & {
-            __brand: VigorBrand<"Core", "Symbol_Default">;
-        };
-        readonly error: symbol & {
-            __brand: VigorBrand<"Core", "Symbol_Default">;
-        };
-        readonly response: symbol & {
-            __brand: VigorBrand<"Core", "Symbol_Default">;
-        };
-        readonly flags: {
-            readonly overrided: false;
-            readonly restarted: false;
-        };
-        readonly record: {};
-        readonly policy: {
-            readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
-            readonly target: symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            };
-            readonly settings: {
-                readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
-                readonly raw: false;
-                readonly default: symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Empty">;
-                };
-                readonly maxRestarts: 3;
-            };
-            readonly middlewares: {
-                readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
-                readonly before: [];
-                readonly after: [];
-                readonly onResult: [];
-                readonly onError: [];
-            };
-            readonly strategies: {
-                readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
-                readonly funcs: VigorParseStrategyFunc[];
-            };
-        };
-    };
-};
-/**
- * Immutable builder that parses an HTTP response into a result value,
- * trying each configured strategy in sequence with an optional middleware
- * pipeline and restart-on-failure support.
- */
-declare class VigorParse<T extends VigorParseSchema<T> = typeof VigorParseBase> extends VigorStatus<VigorParseSchema<T>, T, VigorParseTypeLambda> {
-    constructor(config?: T);
-    protected _create<C>(config: C): VigorApply<VigorParseTypeLambda, C>;
-    /** Sets the `Response` object to parse. */
-    target<const N extends VigorParseSchema<T>["policy"]["target"]>(response: N): VigorParse<VigorParseIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly target: N;
-        };
-    }>>>;
-    /** Configures the parse policy's general settings. */
-    settings<const N extends VigorDeepPartial<VigorParsePolicySettingsSchema<T>>, R extends VigorParseSchema<any>>(input: N | ((s: VigorParsePolicySettings<T>) => VigorParsePolicySettings<R>) | VigorParsePolicySettings<R>): VigorParse<VigorParseIn<VigorDeepMerge<T, {
-        __brand?: VigorBrand<"Parse", "Schema"> | undefined;
-        policy?: {
-            __brand?: VigorBrand<"Parse", "Policy<Schema"> | undefined;
-            target?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | {
-                readonly headers?: {
-                    append?: ((name: string, value: string) => void) | undefined;
-                    delete?: ((name: string) => void) | undefined;
-                    get?: ((name: string) => string | null) | undefined;
-                    getSetCookie?: (() => string[]) | undefined;
-                    has?: ((name: string) => boolean) | undefined;
-                    set?: ((name: string, value: string) => void) | undefined;
-                    forEach?: ((callbackfn: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void) | undefined;
-                } | undefined;
-                readonly ok?: boolean | undefined;
-                readonly redirected?: boolean | undefined;
-                readonly status?: number | undefined;
-                readonly statusText?: string | undefined;
-                readonly type?: ResponseType | undefined;
-                readonly url?: string | undefined;
-                clone?: (() => Response) | undefined;
-                readonly body?: {
-                    readonly locked?: boolean | undefined;
-                    cancel?: ((reason?: any) => Promise<void>) | undefined;
-                    getReader?: {
-                        (options: {
-                            mode: "byob";
-                        }): ReadableStreamBYOBReader;
-                        (): ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
-                        (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<Uint8Array<ArrayBuffer>>;
-                    } | undefined;
-                    pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                    pipeTo?: ((destination: WritableStream<Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                    tee?: (() => [ReadableStream<Uint8Array<ArrayBuffer>>, ReadableStream<Uint8Array<ArrayBuffer>>]) | undefined;
-                } | null | undefined;
-                readonly bodyUsed?: boolean | undefined;
-                arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                blob?: (() => Promise<Blob>) | undefined;
-                bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                formData?: (() => Promise<FormData>) | undefined;
-                json?: (() => Promise<any>) | undefined;
-                text?: (() => Promise<string>) | undefined;
-            } | undefined;
-            settings?: {
-                __brand?: VigorBrand<"Parse", "Policy<Settings<Schema"> | undefined;
-                raw?: boolean | undefined;
-                default?: (symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Empty">;
-                }) | ((ctx: any) => any | Promise<any>) | undefined;
-                maxRestarts?: number | undefined;
-            } | undefined;
-            middlewares?: {
-                __brand?: VigorBrand<"Parse", "Policy<Middlewares<Schema"> | undefined;
-                before?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                after?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onResult?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((res: any) => VigorParseSchema<any>["context"]["result"]) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onError?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((err: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult" | "proceedRestart" | "cancelRestart">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-            } | undefined;
-            strategies?: {
-                __brand?: VigorBrand<"Parse", "Policy<Strategies<Schema"> | undefined;
-                funcs?: readonly VigorParseStrategyFunc[] | undefined;
-            } | undefined;
-        } | undefined;
-        context?: {
-            __brand?: VigorBrand<"Parse", "Context<Schema"> | undefined;
-            result?: unknown | VigorDefaultType;
-            error?: unknown;
-            response?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | {
-                readonly headers?: {
-                    append?: ((name: string, value: string) => void) | undefined;
-                    delete?: ((name: string) => void) | undefined;
-                    get?: ((name: string) => string | null) | undefined;
-                    getSetCookie?: (() => string[]) | undefined;
-                    has?: ((name: string) => boolean) | undefined;
-                    set?: ((name: string, value: string) => void) | undefined;
-                    forEach?: ((callbackfn: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void) | undefined;
-                } | undefined;
-                readonly ok?: boolean | undefined;
-                readonly redirected?: boolean | undefined;
-                readonly status?: number | undefined;
-                readonly statusText?: string | undefined;
-                readonly type?: ResponseType | undefined;
-                readonly url?: string | undefined;
-                clone?: (() => Response) | undefined;
-                readonly body?: {
-                    readonly locked?: boolean | undefined;
-                    cancel?: ((reason?: any) => Promise<void>) | undefined;
-                    getReader?: {
-                        (options: {
-                            mode: "byob";
-                        }): ReadableStreamBYOBReader;
-                        (): ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
-                        (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<Uint8Array<ArrayBuffer>>;
-                    } | undefined;
-                    pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                    pipeTo?: ((destination: WritableStream<Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                    tee?: (() => [ReadableStream<Uint8Array<ArrayBuffer>>, ReadableStream<Uint8Array<ArrayBuffer>>]) | undefined;
-                } | null | undefined;
-                readonly bodyUsed?: boolean | undefined;
-                arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                blob?: (() => Promise<Blob>) | undefined;
-                bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                formData?: (() => Promise<FormData>) | undefined;
-                json?: (() => Promise<any>) | undefined;
-                text?: (() => Promise<string>) | undefined;
-            } | undefined;
-            flags?: {
-                overrided?: boolean | undefined;
-                restarted?: boolean | undefined;
-            } | undefined;
-            record?: {
-                [x: string]: any;
-            } | undefined;
-            policy?: any;
-        } | undefined;
-    }>>>;
-    /** Configures the parse policy's middleware pipeline. */
-    middlewares<const N extends VigorDeepPartial<VigorParsePolicyMiddlewaresSchema<T>>, R extends VigorParseSchema<any>>(input: N | ((s: VigorParsePolicyMiddlewares<T>) => VigorParsePolicyMiddlewares<R>) | VigorParsePolicyMiddlewares<R>): VigorParse<VigorParseIn<VigorDeepMerge<T, {
-        __brand?: VigorBrand<"Parse", "Schema"> | undefined;
-        policy?: {
-            __brand?: VigorBrand<"Parse", "Policy<Schema"> | undefined;
-            target?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | {
-                readonly headers?: {
-                    append?: ((name: string, value: string) => void) | undefined;
-                    delete?: ((name: string) => void) | undefined;
-                    get?: ((name: string) => string | null) | undefined;
-                    getSetCookie?: (() => string[]) | undefined;
-                    has?: ((name: string) => boolean) | undefined;
-                    set?: ((name: string, value: string) => void) | undefined;
-                    forEach?: ((callbackfn: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void) | undefined;
-                } | undefined;
-                readonly ok?: boolean | undefined;
-                readonly redirected?: boolean | undefined;
-                readonly status?: number | undefined;
-                readonly statusText?: string | undefined;
-                readonly type?: ResponseType | undefined;
-                readonly url?: string | undefined;
-                clone?: (() => Response) | undefined;
-                readonly body?: {
-                    readonly locked?: boolean | undefined;
-                    cancel?: ((reason?: any) => Promise<void>) | undefined;
-                    getReader?: {
-                        (options: {
-                            mode: "byob";
-                        }): ReadableStreamBYOBReader;
-                        (): ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
-                        (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<Uint8Array<ArrayBuffer>>;
-                    } | undefined;
-                    pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                    pipeTo?: ((destination: WritableStream<Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                    tee?: (() => [ReadableStream<Uint8Array<ArrayBuffer>>, ReadableStream<Uint8Array<ArrayBuffer>>]) | undefined;
-                } | null | undefined;
-                readonly bodyUsed?: boolean | undefined;
-                arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                blob?: (() => Promise<Blob>) | undefined;
-                bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                formData?: (() => Promise<FormData>) | undefined;
-                json?: (() => Promise<any>) | undefined;
-                text?: (() => Promise<string>) | undefined;
-            } | undefined;
-            settings?: {
-                __brand?: VigorBrand<"Parse", "Policy<Settings<Schema"> | undefined;
-                raw?: boolean | undefined;
-                default?: (symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Empty">;
-                }) | ((ctx: any) => any | Promise<any>) | undefined;
-                maxRestarts?: number | undefined;
-            } | undefined;
-            middlewares?: {
-                __brand?: VigorBrand<"Parse", "Policy<Middlewares<Schema"> | undefined;
-                before?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                after?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onResult?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((res: any) => VigorParseSchema<any>["context"]["result"]) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onError?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((err: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult" | "proceedRestart" | "cancelRestart">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-            } | undefined;
-            strategies?: {
-                __brand?: VigorBrand<"Parse", "Policy<Strategies<Schema"> | undefined;
-                funcs?: readonly VigorParseStrategyFunc[] | undefined;
-            } | undefined;
-        } | undefined;
-        context?: {
-            __brand?: VigorBrand<"Parse", "Context<Schema"> | undefined;
-            result?: unknown | VigorDefaultType;
-            error?: unknown;
-            response?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | {
-                readonly headers?: {
-                    append?: ((name: string, value: string) => void) | undefined;
-                    delete?: ((name: string) => void) | undefined;
-                    get?: ((name: string) => string | null) | undefined;
-                    getSetCookie?: (() => string[]) | undefined;
-                    has?: ((name: string) => boolean) | undefined;
-                    set?: ((name: string, value: string) => void) | undefined;
-                    forEach?: ((callbackfn: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void) | undefined;
-                } | undefined;
-                readonly ok?: boolean | undefined;
-                readonly redirected?: boolean | undefined;
-                readonly status?: number | undefined;
-                readonly statusText?: string | undefined;
-                readonly type?: ResponseType | undefined;
-                readonly url?: string | undefined;
-                clone?: (() => Response) | undefined;
-                readonly body?: {
-                    readonly locked?: boolean | undefined;
-                    cancel?: ((reason?: any) => Promise<void>) | undefined;
-                    getReader?: {
-                        (options: {
-                            mode: "byob";
-                        }): ReadableStreamBYOBReader;
-                        (): ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
-                        (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<Uint8Array<ArrayBuffer>>;
-                    } | undefined;
-                    pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                    pipeTo?: ((destination: WritableStream<Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                    tee?: (() => [ReadableStream<Uint8Array<ArrayBuffer>>, ReadableStream<Uint8Array<ArrayBuffer>>]) | undefined;
-                } | null | undefined;
-                readonly bodyUsed?: boolean | undefined;
-                arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                blob?: (() => Promise<Blob>) | undefined;
-                bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                formData?: (() => Promise<FormData>) | undefined;
-                json?: (() => Promise<any>) | undefined;
-                text?: (() => Promise<string>) | undefined;
-            } | undefined;
-            flags?: {
-                overrided?: boolean | undefined;
-                restarted?: boolean | undefined;
-            } | undefined;
-            record?: {
-                [x: string]: any;
-            } | undefined;
-            policy?: any;
-        } | undefined;
-    }>>>;
-    /** Configures the parse policy's fallback chain of parsing strategies. */
-    strategies<const N extends VigorDeepPartial<VigorParsePolicyStrategiesSchema<T>>, R extends VigorParseSchema<any>>(input: N | ((s: VigorParsePolicyStrategies<T>) => VigorParsePolicyStrategies<R>) | VigorParsePolicyStrategies<R>): VigorParse<VigorParseIn<VigorDeepMerge<T, {
-        __brand?: VigorBrand<"Parse", "Schema"> | undefined;
-        policy?: {
-            __brand?: VigorBrand<"Parse", "Policy<Schema"> | undefined;
-            target?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | {
-                readonly headers?: {
-                    append?: ((name: string, value: string) => void) | undefined;
-                    delete?: ((name: string) => void) | undefined;
-                    get?: ((name: string) => string | null) | undefined;
-                    getSetCookie?: (() => string[]) | undefined;
-                    has?: ((name: string) => boolean) | undefined;
-                    set?: ((name: string, value: string) => void) | undefined;
-                    forEach?: ((callbackfn: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void) | undefined;
-                } | undefined;
-                readonly ok?: boolean | undefined;
-                readonly redirected?: boolean | undefined;
-                readonly status?: number | undefined;
-                readonly statusText?: string | undefined;
-                readonly type?: ResponseType | undefined;
-                readonly url?: string | undefined;
-                clone?: (() => Response) | undefined;
-                readonly body?: {
-                    readonly locked?: boolean | undefined;
-                    cancel?: ((reason?: any) => Promise<void>) | undefined;
-                    getReader?: {
-                        (options: {
-                            mode: "byob";
-                        }): ReadableStreamBYOBReader;
-                        (): ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
-                        (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<Uint8Array<ArrayBuffer>>;
-                    } | undefined;
-                    pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                    pipeTo?: ((destination: WritableStream<Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                    tee?: (() => [ReadableStream<Uint8Array<ArrayBuffer>>, ReadableStream<Uint8Array<ArrayBuffer>>]) | undefined;
-                } | null | undefined;
-                readonly bodyUsed?: boolean | undefined;
-                arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                blob?: (() => Promise<Blob>) | undefined;
-                bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                formData?: (() => Promise<FormData>) | undefined;
-                json?: (() => Promise<any>) | undefined;
-                text?: (() => Promise<string>) | undefined;
-            } | undefined;
-            settings?: {
-                __brand?: VigorBrand<"Parse", "Policy<Settings<Schema"> | undefined;
-                raw?: boolean | undefined;
-                default?: (symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Empty">;
-                }) | ((ctx: any) => any | Promise<any>) | undefined;
-                maxRestarts?: number | undefined;
-            } | undefined;
-            middlewares?: {
-                __brand?: VigorBrand<"Parse", "Policy<Middlewares<Schema"> | undefined;
-                before?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                after?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onResult?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((res: any) => VigorParseSchema<any>["context"]["result"]) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onError?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((err: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult" | "proceedRestart" | "cancelRestart">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-            } | undefined;
-            strategies?: {
-                __brand?: VigorBrand<"Parse", "Policy<Strategies<Schema"> | undefined;
-                funcs?: readonly VigorParseStrategyFunc[] | undefined;
-            } | undefined;
-        } | undefined;
-        context?: {
-            __brand?: VigorBrand<"Parse", "Context<Schema"> | undefined;
-            result?: unknown | VigorDefaultType;
-            error?: unknown;
-            response?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | {
-                readonly headers?: {
-                    append?: ((name: string, value: string) => void) | undefined;
-                    delete?: ((name: string) => void) | undefined;
-                    get?: ((name: string) => string | null) | undefined;
-                    getSetCookie?: (() => string[]) | undefined;
-                    has?: ((name: string) => boolean) | undefined;
-                    set?: ((name: string, value: string) => void) | undefined;
-                    forEach?: ((callbackfn: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void) | undefined;
-                } | undefined;
-                readonly ok?: boolean | undefined;
-                readonly redirected?: boolean | undefined;
-                readonly status?: number | undefined;
-                readonly statusText?: string | undefined;
-                readonly type?: ResponseType | undefined;
-                readonly url?: string | undefined;
-                clone?: (() => Response) | undefined;
-                readonly body?: {
-                    readonly locked?: boolean | undefined;
-                    cancel?: ((reason?: any) => Promise<void>) | undefined;
-                    getReader?: {
-                        (options: {
-                            mode: "byob";
-                        }): ReadableStreamBYOBReader;
-                        (): ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
-                        (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<Uint8Array<ArrayBuffer>>;
-                    } | undefined;
-                    pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                    pipeTo?: ((destination: WritableStream<Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                    tee?: (() => [ReadableStream<Uint8Array<ArrayBuffer>>, ReadableStream<Uint8Array<ArrayBuffer>>]) | undefined;
-                } | null | undefined;
-                readonly bodyUsed?: boolean | undefined;
-                arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                blob?: (() => Promise<Blob>) | undefined;
-                bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                formData?: (() => Promise<FormData>) | undefined;
-                json?: (() => Promise<any>) | undefined;
-                text?: (() => Promise<string>) | undefined;
-            } | undefined;
-            flags?: {
-                overrided?: boolean | undefined;
-                restarted?: boolean | undefined;
-            } | undefined;
-            record?: {
-                [x: string]: any;
-            } | undefined;
-            policy?: any;
-        } | undefined;
-    }>>>;
-    /** Runs parsing and returns the result directly, throwing on final failure. */
-    request<R = T["context"]["result"]>(): Promise<R>;
-    /** Runs parsing and returns a result/error envelope instead of throwing. */
-    requestVerbose<R = T["context"]["result"]>(): Promise<{
-        success: false;
-        data: null;
-        error: unknown;
-    } | {
-        success: true;
-        data: R;
-        error: null;
-    }>;
-    /** Internal execution loop implementing the strategy fallback and restart handling. */
-    private requestRuntime;
+interface VigorFetchPolicyMiddlewaresTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorFetchPolicyMiddlewares<VigorFetchIn<this["In"]>>;
 }
 
 type VigorStringable = string | number | boolean | null | undefined | Date;
@@ -3249,1179 +2522,15 @@ declare class VigorFetch<T extends VigorFetchSchema<T> = typeof VigorFetchBase> 
     }>>>;
     /** Configures the fetch policy's general settings. */
     settings<const N extends VigorDeepPartial<VigorFetchPolicySettingsSchema<T>>, R extends VigorFetchSchema<any>>(input: N | ((s: VigorFetchPolicySettings<T>) => VigorFetchPolicySettings<R>) | VigorFetchPolicySettings<R>): VigorFetch<VigorFetchIn<VigorDeepMerge<T, {
-        __brand?: VigorBrand<"Fetch", "Schema"> | undefined;
-        policy?: {
-            __brand?: VigorBrand<"Fetch", "Policy<Schema"> | undefined;
-            method?: VigorFetchOptions["method"] | VigorEmptyType;
-            origin?: string | (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Empty">;
-            }) | undefined;
-            path?: readonly string[] | undefined;
-            query?: readonly {
-                [x: string]: VigorStringable | readonly VigorStringable[];
-            }[] | undefined;
-            hash?: string | undefined;
-            headers?: {
-                [x: string]: string | undefined;
-            } | undefined;
-            body?: string | object | (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Empty">;
-            }) | {
-                readonly locked?: boolean | undefined;
-                cancel?: ((reason?: any) => Promise<void>) | undefined;
-                getReader?: {
-                    (options: {
-                        mode: "byob";
-                    }): ReadableStreamBYOBReader;
-                    (): ReadableStreamDefaultReader<any>;
-                    (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<any>;
-                } | undefined;
-                pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, any>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                pipeTo?: ((destination: WritableStream<any>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                tee?: (() => [ReadableStream<any>, ReadableStream<any>]) | undefined;
-            } | {
-                readonly size?: number | undefined;
-                readonly type?: string | undefined;
-                arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                slice?: ((start?: number, end?: number, contentType?: string) => Blob) | undefined;
-                stream?: (() => ReadableStream<Uint8Array<ArrayBuffer>>) | undefined;
-                text?: (() => Promise<string>) | undefined;
-            } | {
-                readonly byteLength?: number | undefined;
-                slice?: ((begin?: number, end?: number) => ArrayBuffer) | undefined;
-                readonly maxByteLength?: number | undefined;
-                readonly resizable?: boolean | undefined;
-                resize?: ((newByteLength?: number) => void) | undefined;
-                readonly detached?: boolean | undefined;
-                transfer?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                transferToFixedLength?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                readonly [Symbol.toStringTag]?: "ArrayBuffer" | undefined;
-            } | {
-                readonly buffer?: {
-                    readonly byteLength?: number | undefined;
-                    slice?: ((begin?: number, end?: number) => ArrayBuffer) | undefined;
-                    readonly maxByteLength?: number | undefined;
-                    readonly resizable?: boolean | undefined;
-                    resize?: ((newByteLength?: number) => void) | undefined;
-                    readonly detached?: boolean | undefined;
-                    transfer?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                    transferToFixedLength?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                    readonly [Symbol.toStringTag]?: "ArrayBuffer" | undefined;
-                } | undefined;
-                readonly byteLength?: number | undefined;
-                readonly byteOffset?: number | undefined;
-            } | {
-                append?: {
-                    (name: string, value: string | Blob): void;
-                    (name: string, value: string): void;
-                    (name: string, blobValue: Blob, filename?: string): void;
-                } | undefined;
-                delete?: ((name: string) => void) | undefined;
-                get?: ((name: string) => FormDataEntryValue | null) | undefined;
-                getAll?: ((name: string) => FormDataEntryValue[]) | undefined;
-                has?: ((name: string) => boolean) | undefined;
-                set?: {
-                    (name: string, value: string | Blob): void;
-                    (name: string, value: string): void;
-                    (name: string, blobValue: Blob, filename?: string): void;
-                } | undefined;
-                forEach?: ((callbackfn: (value: FormDataEntryValue, key: string, parent: FormData) => void, thisArg?: any) => void) | undefined;
-            } | {
-                readonly size?: number | undefined;
-                append?: ((name: string, value: string) => void) | undefined;
-                delete?: ((name: string, value?: string) => void) | undefined;
-                get?: ((name: string) => string | null) | undefined;
-                getAll?: ((name: string) => string[]) | undefined;
-                has?: ((name: string, value?: string) => boolean) | undefined;
-                set?: ((name: string, value: string) => void) | undefined;
-                sort?: (() => void) | undefined;
-                toString?: (() => string) | undefined;
-                forEach?: ((callbackfn: (value: string, key: string, parent: URLSearchParams) => void, thisArg?: any) => void) | undefined;
-            } | null | undefined;
-            extra?: {
-                cache?: RequestCache | undefined;
-                credentials?: RequestCredentials | undefined;
-                integrity?: string | undefined;
-                keepalive?: boolean | undefined;
-                mode?: RequestMode | undefined;
-                priority?: RequestPriority | undefined;
-                redirect?: RequestRedirect | undefined;
-                referrer?: string | undefined;
-                referrerPolicy?: ReferrerPolicy | undefined;
-                window?: null | undefined;
-            } | undefined;
-            settings?: {
-                __brand?: VigorBrand<"Fetch", "Policy<Settings<Schema"> | undefined;
-                retryHeaders?: readonly string[] | undefined;
-                unretryStatus?: readonly number[] | undefined;
-                maxRestarts?: number | undefined;
-                default?: (symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Empty">;
-                }) | ((ctx: any) => any | Promise<any>) | undefined;
-            } | undefined;
-            middlewares?: {
-                __brand?: VigorBrand<"Fetch", "Policy<Middlewares<Schema"> | undefined;
-                before?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorFetchPolicyMiddlewaresApi<any>, "throwError" | "setOptions" | "setHeaders" | "setBody">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                after?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorFetchPolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onResult?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((res: any) => VigorFetchSchema<any>["context"]["result"]) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorFetchPolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onError?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((err: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorFetchPolicyMiddlewaresApi<any>, "throwError" | "setResult" | "proceedRestart" | "cancelRestart">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-            } | undefined;
-            retry?: {
-                __brand?: VigorBrand<"Retry", "Schema"> | undefined;
-                policy?: {
-                    __brand?: VigorBrand<"Retry", "Policy<Schema"> | undefined;
-                    target?: (symbol & {
-                        __brand: VigorBrand<"Core", "Symbol_Empty">;
-                    }) | ((signal: AbortSignal) => any | Promise<any>) | undefined;
-                    abortSignals?: readonly {
-                        readonly aborted?: boolean | undefined;
-                        onabort?: ((this: AbortSignal, ev: Event) => any) | null | undefined;
-                        readonly reason?: any;
-                        throwIfAborted?: (() => void) | undefined;
-                        addEventListener?: {
-                            <K extends keyof AbortSignalEventMap>(type: K, listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
-                            (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
-                        } | undefined;
-                        removeEventListener?: {
-                            <K extends keyof AbortSignalEventMap>(type: K, listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
-                            (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
-                        } | undefined;
-                        dispatchEvent?: ((event: Event) => boolean) | undefined;
-                    }[] | undefined;
-                    settings?: {
-                        __brand?: VigorBrand<"Retry", "Policy<Settings<Schema"> | undefined;
-                        default?: (symbol & {
-                            __brand: VigorBrand<"Core", "Symbol_Empty">;
-                        }) | ((ctx: any) => any | Promise<any>) | undefined;
-                        maxAttempts?: number | undefined;
-                        maxRestarts?: number | undefined;
-                        timeout?: number | undefined;
-                    } | undefined;
-                    middlewares?: {
-                        __brand?: VigorBrand<"Retry", "Policy<Middlewares<Schema"> | undefined;
-                        before?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((ctx: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "abort" | "throwError" | "breakRetry">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        after?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((ctx: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        onResult?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((res: any) => VigorRetrySchema<any>["context"]["result"]) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        retryIf?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((err: any) => VigorRetrySchema<any>["context"]["flags"]["doRetry"]) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "proceedRetry" | "cancelRetry">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        onRetry?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((err: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError" | "setDelay">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        onError?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((err: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError" | "setResult" | "proceedRestart" | "cancelRestart">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                    } | undefined;
-                    algorithms?: {
-                        __brand?: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema"> | undefined;
-                        _tag?: "constant" | undefined;
-                        jitter?: number | undefined;
-                        interval?: number | undefined;
-                        _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-                    } | {
-                        __brand?: VigorBrand<"Retry", "Policy<Algorithms<Linear<Schema"> | undefined;
-                        _tag?: "linear" | undefined;
-                        jitter?: number | undefined;
-                        initial?: number | undefined;
-                        increment?: number | undefined;
-                        minDelay?: number | undefined;
-                        maxDelay?: number | undefined;
-                        _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsLinearSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-                    } | {
-                        __brand?: VigorBrand<"Retry", "Policy<Algorithms<Backoff<Schema"> | undefined;
-                        _tag?: "backoff" | undefined;
-                        jitter?: number | undefined;
-                        initial?: number | undefined;
-                        multiplier?: number | undefined;
-                        unit?: number | undefined;
-                        minDelay?: number | undefined;
-                        maxDelay?: number | undefined;
-                        _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsBackoffSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-                    } | {
-                        __brand?: VigorBrand<"Retry", "Policy<Algorithms<Custom<Schema"> | undefined;
-                        _tag?: "custom" | undefined;
-                        jitter?: number | undefined;
-                        minDelay?: number | undefined;
-                        maxDelay?: number | undefined;
-                        target?: (symbol & {
-                            __brand: VigorBrand<"Core", "Symbol_Empty">;
-                        }) | ((att: number) => number) | undefined;
-                        _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsCustomSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-                    } | undefined;
-                } | undefined;
-                context?: {
-                    __brand?: VigorBrand<"Retry", "Context<Schema"> | undefined;
-                    result?: (symbol & {
-                        __brand: VigorBrand<"Core", "Symbol_Default">;
-                    }) | undefined;
-                    error?: unknown;
-                    system?: {
-                        delay?: number | (symbol & {
-                            __brand: VigorBrand<"Core", "Symbol_Default">;
-                        }) | undefined;
-                        attempt?: number | undefined;
-                    } | undefined;
-                    flags?: {
-                        doRetry?: boolean | undefined;
-                        doRestart?: boolean | undefined;
-                        brokeRetry?: boolean | undefined;
-                        overridden?: boolean | undefined;
-                    } | undefined;
-                    record?: {
-                        [x: string]: any;
-                    } | undefined;
-                    policy?: any;
-                } | undefined;
-            } | undefined;
-            parse?: {
-                __brand?: VigorBrand<"Parse", "Schema"> | undefined;
-                policy?: {
-                    __brand?: VigorBrand<"Parse", "Policy<Schema"> | undefined;
-                    target?: (symbol & {
-                        __brand: VigorBrand<"Core", "Symbol_Default">;
-                    }) | {
-                        readonly headers?: {
-                            append?: ((name: string, value: string) => void) | undefined;
-                            delete?: ((name: string) => void) | undefined;
-                            get?: ((name: string) => string | null) | undefined;
-                            getSetCookie?: (() => string[]) | undefined;
-                            has?: ((name: string) => boolean) | undefined;
-                            set?: ((name: string, value: string) => void) | undefined;
-                            forEach?: ((callbackfn: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void) | undefined;
-                        } | undefined;
-                        readonly ok?: boolean | undefined;
-                        readonly redirected?: boolean | undefined;
-                        readonly status?: number | undefined;
-                        readonly statusText?: string | undefined;
-                        readonly type?: ResponseType | undefined;
-                        readonly url?: string | undefined;
-                        clone?: (() => Response) | undefined;
-                        readonly body?: {
-                            readonly locked?: boolean | undefined;
-                            cancel?: ((reason?: any) => Promise<void>) | undefined;
-                            getReader?: {
-                                (options: {
-                                    mode: "byob";
-                                }): ReadableStreamBYOBReader;
-                                (): ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
-                                (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<Uint8Array<ArrayBuffer>>;
-                            } | undefined;
-                            pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                            pipeTo?: ((destination: WritableStream<Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                            tee?: (() => [ReadableStream<Uint8Array<ArrayBuffer>>, ReadableStream<Uint8Array<ArrayBuffer>>]) | undefined;
-                        } | null | undefined;
-                        readonly bodyUsed?: boolean | undefined;
-                        arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                        blob?: (() => Promise<Blob>) | undefined;
-                        bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                        formData?: (() => Promise<FormData>) | undefined;
-                        json?: (() => Promise<any>) | undefined;
-                        text?: (() => Promise<string>) | undefined;
-                    } | undefined;
-                    settings?: {
-                        __brand?: VigorBrand<"Parse", "Policy<Settings<Schema"> | undefined;
-                        raw?: boolean | undefined;
-                        default?: (symbol & {
-                            __brand: VigorBrand<"Core", "Symbol_Empty">;
-                        }) | ((ctx: any) => any | Promise<any>) | undefined;
-                        maxRestarts?: number | undefined;
-                    } | undefined;
-                    middlewares?: {
-                        __brand?: VigorBrand<"Parse", "Policy<Middlewares<Schema"> | undefined;
-                        before?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((ctx: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        after?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((ctx: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        onResult?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((res: any) => VigorParseSchema<any>["context"]["result"]) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        onError?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((err: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult" | "proceedRestart" | "cancelRestart">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                    } | undefined;
-                    strategies?: {
-                        __brand?: VigorBrand<"Parse", "Policy<Strategies<Schema"> | undefined;
-                        funcs?: readonly VigorParseStrategyFunc[] | undefined;
-                    } | undefined;
-                } | undefined;
-                context?: {
-                    __brand?: VigorBrand<"Parse", "Context<Schema"> | undefined;
-                    result?: unknown | VigorDefaultType;
-                    error?: unknown;
-                    response?: (symbol & {
-                        __brand: VigorBrand<"Core", "Symbol_Default">;
-                    }) | {
-                        readonly headers?: {
-                            append?: ((name: string, value: string) => void) | undefined;
-                            delete?: ((name: string) => void) | undefined;
-                            get?: ((name: string) => string | null) | undefined;
-                            getSetCookie?: (() => string[]) | undefined;
-                            has?: ((name: string) => boolean) | undefined;
-                            set?: ((name: string, value: string) => void) | undefined;
-                            forEach?: ((callbackfn: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void) | undefined;
-                        } | undefined;
-                        readonly ok?: boolean | undefined;
-                        readonly redirected?: boolean | undefined;
-                        readonly status?: number | undefined;
-                        readonly statusText?: string | undefined;
-                        readonly type?: ResponseType | undefined;
-                        readonly url?: string | undefined;
-                        clone?: (() => Response) | undefined;
-                        readonly body?: {
-                            readonly locked?: boolean | undefined;
-                            cancel?: ((reason?: any) => Promise<void>) | undefined;
-                            getReader?: {
-                                (options: {
-                                    mode: "byob";
-                                }): ReadableStreamBYOBReader;
-                                (): ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
-                                (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<Uint8Array<ArrayBuffer>>;
-                            } | undefined;
-                            pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                            pipeTo?: ((destination: WritableStream<Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                            tee?: (() => [ReadableStream<Uint8Array<ArrayBuffer>>, ReadableStream<Uint8Array<ArrayBuffer>>]) | undefined;
-                        } | null | undefined;
-                        readonly bodyUsed?: boolean | undefined;
-                        arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                        blob?: (() => Promise<Blob>) | undefined;
-                        bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                        formData?: (() => Promise<FormData>) | undefined;
-                        json?: (() => Promise<any>) | undefined;
-                        text?: (() => Promise<string>) | undefined;
-                    } | undefined;
-                    flags?: {
-                        overrided?: boolean | undefined;
-                        restarted?: boolean | undefined;
-                    } | undefined;
-                    record?: {
-                        [x: string]: any;
-                    } | undefined;
-                    policy?: any;
-                } | undefined;
-            } | undefined;
-        } | undefined;
-        context?: {
-            __brand?: VigorBrand<"Fetch", "Context<Schema"> | undefined;
-            href?: string | undefined;
-            response?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | {
-                readonly headers?: {
-                    append?: ((name: string, value: string) => void) | undefined;
-                    delete?: ((name: string) => void) | undefined;
-                    get?: ((name: string) => string | null) | undefined;
-                    getSetCookie?: (() => string[]) | undefined;
-                    has?: ((name: string) => boolean) | undefined;
-                    set?: ((name: string, value: string) => void) | undefined;
-                    forEach?: ((callbackfn: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void) | undefined;
-                } | undefined;
-                readonly ok?: boolean | undefined;
-                readonly redirected?: boolean | undefined;
-                readonly status?: number | undefined;
-                readonly statusText?: string | undefined;
-                readonly type?: ResponseType | undefined;
-                readonly url?: string | undefined;
-                clone?: (() => Response) | undefined;
-                readonly body?: {
-                    readonly locked?: boolean | undefined;
-                    cancel?: ((reason?: any) => Promise<void>) | undefined;
-                    getReader?: {
-                        (options: {
-                            mode: "byob";
-                        }): ReadableStreamBYOBReader;
-                        (): ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
-                        (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<Uint8Array<ArrayBuffer>>;
-                    } | undefined;
-                    pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                    pipeTo?: ((destination: WritableStream<Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                    tee?: (() => [ReadableStream<Uint8Array<ArrayBuffer>>, ReadableStream<Uint8Array<ArrayBuffer>>]) | undefined;
-                } | null | undefined;
-                readonly bodyUsed?: boolean | undefined;
-                arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                blob?: (() => Promise<Blob>) | undefined;
-                bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                formData?: (() => Promise<FormData>) | undefined;
-                json?: (() => Promise<any>) | undefined;
-                text?: (() => Promise<string>) | undefined;
-            } | undefined;
-            result?: unknown | VigorDefaultType;
-            error?: unknown;
-            options?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | {
-                cache?: RequestCache | undefined;
-                credentials?: RequestCredentials | undefined;
-                integrity?: string | undefined;
-                keepalive?: boolean | undefined;
-                mode?: RequestMode | undefined;
-                priority?: RequestPriority | undefined;
-                redirect?: RequestRedirect | undefined;
-                referrer?: string | undefined;
-                referrerPolicy?: ReferrerPolicy | undefined;
-                window?: null | undefined;
-                method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "CONNECT" | "TRACE" | undefined;
-                headers?: {
-                    [x: string]: string | undefined;
-                } | undefined;
-                body?: string | {
-                    readonly locked?: boolean | undefined;
-                    cancel?: ((reason?: any) => Promise<void>) | undefined;
-                    getReader?: {
-                        (options: {
-                            mode: "byob";
-                        }): ReadableStreamBYOBReader;
-                        (): ReadableStreamDefaultReader<any>;
-                        (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<any>;
-                    } | undefined;
-                    pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, any>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                    pipeTo?: ((destination: WritableStream<any>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                    tee?: (() => [ReadableStream<any>, ReadableStream<any>]) | undefined;
-                } | {
-                    readonly size?: number | undefined;
-                    readonly type?: string | undefined;
-                    arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                    bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                    slice?: ((start?: number, end?: number, contentType?: string) => Blob) | undefined;
-                    stream?: (() => ReadableStream<Uint8Array<ArrayBuffer>>) | undefined;
-                    text?: (() => Promise<string>) | undefined;
-                } | {
-                    readonly byteLength?: number | undefined;
-                    slice?: ((begin?: number, end?: number) => ArrayBuffer) | undefined;
-                    readonly maxByteLength?: number | undefined;
-                    readonly resizable?: boolean | undefined;
-                    resize?: ((newByteLength?: number) => void) | undefined;
-                    readonly detached?: boolean | undefined;
-                    transfer?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                    transferToFixedLength?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                    readonly [Symbol.toStringTag]?: "ArrayBuffer" | undefined;
-                } | {
-                    readonly buffer?: {
-                        readonly byteLength?: number | undefined;
-                        slice?: ((begin?: number, end?: number) => ArrayBuffer) | undefined;
-                        readonly maxByteLength?: number | undefined;
-                        readonly resizable?: boolean | undefined;
-                        resize?: ((newByteLength?: number) => void) | undefined;
-                        readonly detached?: boolean | undefined;
-                        transfer?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                        transferToFixedLength?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                        readonly [Symbol.toStringTag]?: "ArrayBuffer" | undefined;
-                    } | undefined;
-                    readonly byteLength?: number | undefined;
-                    readonly byteOffset?: number | undefined;
-                } | {
-                    append?: {
-                        (name: string, value: string | Blob): void;
-                        (name: string, value: string): void;
-                        (name: string, blobValue: Blob, filename?: string): void;
-                    } | undefined;
-                    delete?: ((name: string) => void) | undefined;
-                    get?: ((name: string) => FormDataEntryValue | null) | undefined;
-                    getAll?: ((name: string) => FormDataEntryValue[]) | undefined;
-                    has?: ((name: string) => boolean) | undefined;
-                    set?: {
-                        (name: string, value: string | Blob): void;
-                        (name: string, value: string): void;
-                        (name: string, blobValue: Blob, filename?: string): void;
-                    } | undefined;
-                    forEach?: ((callbackfn: (value: FormDataEntryValue, key: string, parent: FormData) => void, thisArg?: any) => void) | undefined;
-                } | {
-                    readonly size?: number | undefined;
-                    append?: ((name: string, value: string) => void) | undefined;
-                    delete?: ((name: string, value?: string) => void) | undefined;
-                    get?: ((name: string) => string | null) | undefined;
-                    getAll?: ((name: string) => string[]) | undefined;
-                    has?: ((name: string, value?: string) => boolean) | undefined;
-                    set?: ((name: string, value: string) => void) | undefined;
-                    sort?: (() => void) | undefined;
-                    toString?: (() => string) | undefined;
-                    forEach?: ((callbackfn: (value: string, key: string, parent: URLSearchParams) => void, thisArg?: any) => void) | undefined;
-                } | null | undefined;
-                signal?: {
-                    readonly aborted?: boolean | undefined;
-                    onabort?: ((this: AbortSignal, ev: Event) => any) | null | undefined;
-                    readonly reason?: any;
-                    throwIfAborted?: (() => void) | undefined;
-                    addEventListener?: {
-                        <K extends keyof AbortSignalEventMap>(type: K, listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
-                        (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
-                    } | undefined;
-                    removeEventListener?: {
-                        <K extends keyof AbortSignalEventMap>(type: K, listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
-                        (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
-                    } | undefined;
-                    dispatchEvent?: ((event: Event) => boolean) | undefined;
-                } | undefined;
-            } | undefined;
-            flags?: {
-                overrided?: boolean | undefined;
-                restarted?: boolean | undefined;
-            } | undefined;
-            record?: {
-                [x: string]: any;
-            } | undefined;
-            policy?: any;
-        } | undefined;
+        readonly policy: {
+            readonly settings: VigorFetchPolicySettingsSchema<any>;
+        };
     }>>>;
     /** Configures the fetch policy's middleware pipeline. */
     middlewares<const N extends VigorDeepPartial<VigorFetchPolicyMiddlewaresSchema<T>>, R extends VigorFetchSchema<any>>(input: N | ((s: VigorFetchPolicyMiddlewares<T>) => VigorFetchPolicyMiddlewares<R>) | VigorFetchPolicyMiddlewares<R>): VigorFetch<VigorFetchIn<VigorDeepMerge<T, {
-        __brand?: VigorBrand<"Fetch", "Schema"> | undefined;
-        policy?: {
-            __brand?: VigorBrand<"Fetch", "Policy<Schema"> | undefined;
-            method?: VigorFetchOptions["method"] | VigorEmptyType;
-            origin?: string | (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Empty">;
-            }) | undefined;
-            path?: readonly string[] | undefined;
-            query?: readonly {
-                [x: string]: VigorStringable | readonly VigorStringable[];
-            }[] | undefined;
-            hash?: string | undefined;
-            headers?: {
-                [x: string]: string | undefined;
-            } | undefined;
-            body?: string | object | (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Empty">;
-            }) | {
-                readonly locked?: boolean | undefined;
-                cancel?: ((reason?: any) => Promise<void>) | undefined;
-                getReader?: {
-                    (options: {
-                        mode: "byob";
-                    }): ReadableStreamBYOBReader;
-                    (): ReadableStreamDefaultReader<any>;
-                    (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<any>;
-                } | undefined;
-                pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, any>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                pipeTo?: ((destination: WritableStream<any>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                tee?: (() => [ReadableStream<any>, ReadableStream<any>]) | undefined;
-            } | {
-                readonly size?: number | undefined;
-                readonly type?: string | undefined;
-                arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                slice?: ((start?: number, end?: number, contentType?: string) => Blob) | undefined;
-                stream?: (() => ReadableStream<Uint8Array<ArrayBuffer>>) | undefined;
-                text?: (() => Promise<string>) | undefined;
-            } | {
-                readonly byteLength?: number | undefined;
-                slice?: ((begin?: number, end?: number) => ArrayBuffer) | undefined;
-                readonly maxByteLength?: number | undefined;
-                readonly resizable?: boolean | undefined;
-                resize?: ((newByteLength?: number) => void) | undefined;
-                readonly detached?: boolean | undefined;
-                transfer?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                transferToFixedLength?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                readonly [Symbol.toStringTag]?: "ArrayBuffer" | undefined;
-            } | {
-                readonly buffer?: {
-                    readonly byteLength?: number | undefined;
-                    slice?: ((begin?: number, end?: number) => ArrayBuffer) | undefined;
-                    readonly maxByteLength?: number | undefined;
-                    readonly resizable?: boolean | undefined;
-                    resize?: ((newByteLength?: number) => void) | undefined;
-                    readonly detached?: boolean | undefined;
-                    transfer?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                    transferToFixedLength?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                    readonly [Symbol.toStringTag]?: "ArrayBuffer" | undefined;
-                } | undefined;
-                readonly byteLength?: number | undefined;
-                readonly byteOffset?: number | undefined;
-            } | {
-                append?: {
-                    (name: string, value: string | Blob): void;
-                    (name: string, value: string): void;
-                    (name: string, blobValue: Blob, filename?: string): void;
-                } | undefined;
-                delete?: ((name: string) => void) | undefined;
-                get?: ((name: string) => FormDataEntryValue | null) | undefined;
-                getAll?: ((name: string) => FormDataEntryValue[]) | undefined;
-                has?: ((name: string) => boolean) | undefined;
-                set?: {
-                    (name: string, value: string | Blob): void;
-                    (name: string, value: string): void;
-                    (name: string, blobValue: Blob, filename?: string): void;
-                } | undefined;
-                forEach?: ((callbackfn: (value: FormDataEntryValue, key: string, parent: FormData) => void, thisArg?: any) => void) | undefined;
-            } | {
-                readonly size?: number | undefined;
-                append?: ((name: string, value: string) => void) | undefined;
-                delete?: ((name: string, value?: string) => void) | undefined;
-                get?: ((name: string) => string | null) | undefined;
-                getAll?: ((name: string) => string[]) | undefined;
-                has?: ((name: string, value?: string) => boolean) | undefined;
-                set?: ((name: string, value: string) => void) | undefined;
-                sort?: (() => void) | undefined;
-                toString?: (() => string) | undefined;
-                forEach?: ((callbackfn: (value: string, key: string, parent: URLSearchParams) => void, thisArg?: any) => void) | undefined;
-            } | null | undefined;
-            extra?: {
-                cache?: RequestCache | undefined;
-                credentials?: RequestCredentials | undefined;
-                integrity?: string | undefined;
-                keepalive?: boolean | undefined;
-                mode?: RequestMode | undefined;
-                priority?: RequestPriority | undefined;
-                redirect?: RequestRedirect | undefined;
-                referrer?: string | undefined;
-                referrerPolicy?: ReferrerPolicy | undefined;
-                window?: null | undefined;
-            } | undefined;
-            settings?: {
-                __brand?: VigorBrand<"Fetch", "Policy<Settings<Schema"> | undefined;
-                retryHeaders?: readonly string[] | undefined;
-                unretryStatus?: readonly number[] | undefined;
-                maxRestarts?: number | undefined;
-                default?: (symbol & {
-                    __brand: VigorBrand<"Core", "Symbol_Empty">;
-                }) | ((ctx: any) => any | Promise<any>) | undefined;
-            } | undefined;
-            middlewares?: {
-                __brand?: VigorBrand<"Fetch", "Policy<Middlewares<Schema"> | undefined;
-                before?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorFetchPolicyMiddlewaresApi<any>, "throwError" | "setOptions" | "setHeaders" | "setBody">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                after?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((ctx: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorFetchPolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onResult?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((res: any) => VigorFetchSchema<any>["context"]["result"]) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorFetchPolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-                onError?: readonly ({
-                    _mode?: "fluent" | undefined;
-                    func?: ((err: any) => void) | undefined;
-                } | {
-                    _mode?: "intercept" | undefined;
-                    func?: ((ctx: any, api: Pick<VigorFetchPolicyMiddlewaresApi<any>, "throwError" | "setResult" | "proceedRestart" | "cancelRestart">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]>) | undefined;
-                })[] | undefined;
-            } | undefined;
-            retry?: {
-                __brand?: VigorBrand<"Retry", "Schema"> | undefined;
-                policy?: {
-                    __brand?: VigorBrand<"Retry", "Policy<Schema"> | undefined;
-                    target?: (symbol & {
-                        __brand: VigorBrand<"Core", "Symbol_Empty">;
-                    }) | ((signal: AbortSignal) => any | Promise<any>) | undefined;
-                    abortSignals?: readonly {
-                        readonly aborted?: boolean | undefined;
-                        onabort?: ((this: AbortSignal, ev: Event) => any) | null | undefined;
-                        readonly reason?: any;
-                        throwIfAborted?: (() => void) | undefined;
-                        addEventListener?: {
-                            <K extends keyof AbortSignalEventMap>(type: K, listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
-                            (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
-                        } | undefined;
-                        removeEventListener?: {
-                            <K extends keyof AbortSignalEventMap>(type: K, listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
-                            (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
-                        } | undefined;
-                        dispatchEvent?: ((event: Event) => boolean) | undefined;
-                    }[] | undefined;
-                    settings?: {
-                        __brand?: VigorBrand<"Retry", "Policy<Settings<Schema"> | undefined;
-                        default?: (symbol & {
-                            __brand: VigorBrand<"Core", "Symbol_Empty">;
-                        }) | ((ctx: any) => any | Promise<any>) | undefined;
-                        maxAttempts?: number | undefined;
-                        maxRestarts?: number | undefined;
-                        timeout?: number | undefined;
-                    } | undefined;
-                    middlewares?: {
-                        __brand?: VigorBrand<"Retry", "Policy<Middlewares<Schema"> | undefined;
-                        before?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((ctx: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "abort" | "throwError" | "breakRetry">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        after?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((ctx: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        onResult?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((res: any) => VigorRetrySchema<any>["context"]["result"]) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        retryIf?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((err: any) => VigorRetrySchema<any>["context"]["flags"]["doRetry"]) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "proceedRetry" | "cancelRetry">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        onRetry?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((err: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError" | "setDelay">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        onError?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((err: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorRetryPolicyMiddlewaresApi<any>, "throwError" | "setResult" | "proceedRestart" | "cancelRestart">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                    } | undefined;
-                    algorithms?: {
-                        __brand?: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema"> | undefined;
-                        _tag?: "constant" | undefined;
-                        jitter?: number | undefined;
-                        interval?: number | undefined;
-                        _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-                    } | {
-                        __brand?: VigorBrand<"Retry", "Policy<Algorithms<Linear<Schema"> | undefined;
-                        _tag?: "linear" | undefined;
-                        jitter?: number | undefined;
-                        initial?: number | undefined;
-                        increment?: number | undefined;
-                        minDelay?: number | undefined;
-                        maxDelay?: number | undefined;
-                        _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsLinearSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-                    } | {
-                        __brand?: VigorBrand<"Retry", "Policy<Algorithms<Backoff<Schema"> | undefined;
-                        _tag?: "backoff" | undefined;
-                        jitter?: number | undefined;
-                        initial?: number | undefined;
-                        multiplier?: number | undefined;
-                        unit?: number | undefined;
-                        minDelay?: number | undefined;
-                        maxDelay?: number | undefined;
-                        _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsBackoffSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-                    } | {
-                        __brand?: VigorBrand<"Retry", "Policy<Algorithms<Custom<Schema"> | undefined;
-                        _tag?: "custom" | undefined;
-                        jitter?: number | undefined;
-                        minDelay?: number | undefined;
-                        maxDelay?: number | undefined;
-                        target?: (symbol & {
-                            __brand: VigorBrand<"Core", "Symbol_Empty">;
-                        }) | ((att: number) => number) | undefined;
-                        _calculateDelay?: (((att: number, config: VigorRetryPolicyAlgorithmsCustomSchema<any>) => number) & ((att: number, config: any) => number)) | undefined;
-                    } | undefined;
-                } | undefined;
-                context?: {
-                    __brand?: VigorBrand<"Retry", "Context<Schema"> | undefined;
-                    result?: (symbol & {
-                        __brand: VigorBrand<"Core", "Symbol_Default">;
-                    }) | undefined;
-                    error?: unknown;
-                    system?: {
-                        delay?: number | (symbol & {
-                            __brand: VigorBrand<"Core", "Symbol_Default">;
-                        }) | undefined;
-                        attempt?: number | undefined;
-                    } | undefined;
-                    flags?: {
-                        doRetry?: boolean | undefined;
-                        doRestart?: boolean | undefined;
-                        brokeRetry?: boolean | undefined;
-                        overridden?: boolean | undefined;
-                    } | undefined;
-                    record?: {
-                        [x: string]: any;
-                    } | undefined;
-                    policy?: any;
-                } | undefined;
-            } | undefined;
-            parse?: {
-                __brand?: VigorBrand<"Parse", "Schema"> | undefined;
-                policy?: {
-                    __brand?: VigorBrand<"Parse", "Policy<Schema"> | undefined;
-                    target?: (symbol & {
-                        __brand: VigorBrand<"Core", "Symbol_Default">;
-                    }) | {
-                        readonly headers?: {
-                            append?: ((name: string, value: string) => void) | undefined;
-                            delete?: ((name: string) => void) | undefined;
-                            get?: ((name: string) => string | null) | undefined;
-                            getSetCookie?: (() => string[]) | undefined;
-                            has?: ((name: string) => boolean) | undefined;
-                            set?: ((name: string, value: string) => void) | undefined;
-                            forEach?: ((callbackfn: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void) | undefined;
-                        } | undefined;
-                        readonly ok?: boolean | undefined;
-                        readonly redirected?: boolean | undefined;
-                        readonly status?: number | undefined;
-                        readonly statusText?: string | undefined;
-                        readonly type?: ResponseType | undefined;
-                        readonly url?: string | undefined;
-                        clone?: (() => Response) | undefined;
-                        readonly body?: {
-                            readonly locked?: boolean | undefined;
-                            cancel?: ((reason?: any) => Promise<void>) | undefined;
-                            getReader?: {
-                                (options: {
-                                    mode: "byob";
-                                }): ReadableStreamBYOBReader;
-                                (): ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
-                                (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<Uint8Array<ArrayBuffer>>;
-                            } | undefined;
-                            pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                            pipeTo?: ((destination: WritableStream<Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                            tee?: (() => [ReadableStream<Uint8Array<ArrayBuffer>>, ReadableStream<Uint8Array<ArrayBuffer>>]) | undefined;
-                        } | null | undefined;
-                        readonly bodyUsed?: boolean | undefined;
-                        arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                        blob?: (() => Promise<Blob>) | undefined;
-                        bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                        formData?: (() => Promise<FormData>) | undefined;
-                        json?: (() => Promise<any>) | undefined;
-                        text?: (() => Promise<string>) | undefined;
-                    } | undefined;
-                    settings?: {
-                        __brand?: VigorBrand<"Parse", "Policy<Settings<Schema"> | undefined;
-                        raw?: boolean | undefined;
-                        default?: (symbol & {
-                            __brand: VigorBrand<"Core", "Symbol_Empty">;
-                        }) | ((ctx: any) => any | Promise<any>) | undefined;
-                        maxRestarts?: number | undefined;
-                    } | undefined;
-                    middlewares?: {
-                        __brand?: VigorBrand<"Parse", "Policy<Middlewares<Schema"> | undefined;
-                        before?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((ctx: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        after?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((ctx: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        onResult?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((res: any) => VigorParseSchema<any>["context"]["result"]) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                        onError?: readonly ({
-                            _mode?: "fluent" | undefined;
-                            func?: ((err: any) => void) | undefined;
-                        } | {
-                            _mode?: "intercept" | undefined;
-                            func?: ((ctx: any, api: Pick<VigorParsePolicyMiddlewaresApi<any>, "throwError" | "setResult" | "proceedRestart" | "cancelRestart">) => VigorParseSchema<any>["context"] | Promise<VigorParseSchema<any>["context"]>) | undefined;
-                        })[] | undefined;
-                    } | undefined;
-                    strategies?: {
-                        __brand?: VigorBrand<"Parse", "Policy<Strategies<Schema"> | undefined;
-                        funcs?: readonly VigorParseStrategyFunc[] | undefined;
-                    } | undefined;
-                } | undefined;
-                context?: {
-                    __brand?: VigorBrand<"Parse", "Context<Schema"> | undefined;
-                    result?: unknown | VigorDefaultType;
-                    error?: unknown;
-                    response?: (symbol & {
-                        __brand: VigorBrand<"Core", "Symbol_Default">;
-                    }) | {
-                        readonly headers?: {
-                            append?: ((name: string, value: string) => void) | undefined;
-                            delete?: ((name: string) => void) | undefined;
-                            get?: ((name: string) => string | null) | undefined;
-                            getSetCookie?: (() => string[]) | undefined;
-                            has?: ((name: string) => boolean) | undefined;
-                            set?: ((name: string, value: string) => void) | undefined;
-                            forEach?: ((callbackfn: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void) | undefined;
-                        } | undefined;
-                        readonly ok?: boolean | undefined;
-                        readonly redirected?: boolean | undefined;
-                        readonly status?: number | undefined;
-                        readonly statusText?: string | undefined;
-                        readonly type?: ResponseType | undefined;
-                        readonly url?: string | undefined;
-                        clone?: (() => Response) | undefined;
-                        readonly body?: {
-                            readonly locked?: boolean | undefined;
-                            cancel?: ((reason?: any) => Promise<void>) | undefined;
-                            getReader?: {
-                                (options: {
-                                    mode: "byob";
-                                }): ReadableStreamBYOBReader;
-                                (): ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
-                                (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<Uint8Array<ArrayBuffer>>;
-                            } | undefined;
-                            pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                            pipeTo?: ((destination: WritableStream<Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                            tee?: (() => [ReadableStream<Uint8Array<ArrayBuffer>>, ReadableStream<Uint8Array<ArrayBuffer>>]) | undefined;
-                        } | null | undefined;
-                        readonly bodyUsed?: boolean | undefined;
-                        arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                        blob?: (() => Promise<Blob>) | undefined;
-                        bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                        formData?: (() => Promise<FormData>) | undefined;
-                        json?: (() => Promise<any>) | undefined;
-                        text?: (() => Promise<string>) | undefined;
-                    } | undefined;
-                    flags?: {
-                        overrided?: boolean | undefined;
-                        restarted?: boolean | undefined;
-                    } | undefined;
-                    record?: {
-                        [x: string]: any;
-                    } | undefined;
-                    policy?: any;
-                } | undefined;
-            } | undefined;
-        } | undefined;
-        context?: {
-            __brand?: VigorBrand<"Fetch", "Context<Schema"> | undefined;
-            href?: string | undefined;
-            response?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | {
-                readonly headers?: {
-                    append?: ((name: string, value: string) => void) | undefined;
-                    delete?: ((name: string) => void) | undefined;
-                    get?: ((name: string) => string | null) | undefined;
-                    getSetCookie?: (() => string[]) | undefined;
-                    has?: ((name: string) => boolean) | undefined;
-                    set?: ((name: string, value: string) => void) | undefined;
-                    forEach?: ((callbackfn: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void) | undefined;
-                } | undefined;
-                readonly ok?: boolean | undefined;
-                readonly redirected?: boolean | undefined;
-                readonly status?: number | undefined;
-                readonly statusText?: string | undefined;
-                readonly type?: ResponseType | undefined;
-                readonly url?: string | undefined;
-                clone?: (() => Response) | undefined;
-                readonly body?: {
-                    readonly locked?: boolean | undefined;
-                    cancel?: ((reason?: any) => Promise<void>) | undefined;
-                    getReader?: {
-                        (options: {
-                            mode: "byob";
-                        }): ReadableStreamBYOBReader;
-                        (): ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
-                        (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<Uint8Array<ArrayBuffer>>;
-                    } | undefined;
-                    pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                    pipeTo?: ((destination: WritableStream<Uint8Array<ArrayBuffer>>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                    tee?: (() => [ReadableStream<Uint8Array<ArrayBuffer>>, ReadableStream<Uint8Array<ArrayBuffer>>]) | undefined;
-                } | null | undefined;
-                readonly bodyUsed?: boolean | undefined;
-                arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                blob?: (() => Promise<Blob>) | undefined;
-                bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                formData?: (() => Promise<FormData>) | undefined;
-                json?: (() => Promise<any>) | undefined;
-                text?: (() => Promise<string>) | undefined;
-            } | undefined;
-            result?: unknown | VigorDefaultType;
-            error?: unknown;
-            options?: (symbol & {
-                __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | {
-                cache?: RequestCache | undefined;
-                credentials?: RequestCredentials | undefined;
-                integrity?: string | undefined;
-                keepalive?: boolean | undefined;
-                mode?: RequestMode | undefined;
-                priority?: RequestPriority | undefined;
-                redirect?: RequestRedirect | undefined;
-                referrer?: string | undefined;
-                referrerPolicy?: ReferrerPolicy | undefined;
-                window?: null | undefined;
-                method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "CONNECT" | "TRACE" | undefined;
-                headers?: {
-                    [x: string]: string | undefined;
-                } | undefined;
-                body?: string | {
-                    readonly locked?: boolean | undefined;
-                    cancel?: ((reason?: any) => Promise<void>) | undefined;
-                    getReader?: {
-                        (options: {
-                            mode: "byob";
-                        }): ReadableStreamBYOBReader;
-                        (): ReadableStreamDefaultReader<any>;
-                        (options?: ReadableStreamGetReaderOptions): ReadableStreamReader<any>;
-                    } | undefined;
-                    pipeThrough?: (<T_1>(transform: ReadableWritablePair<T_1, any>, options?: StreamPipeOptions) => ReadableStream<T_1>) | undefined;
-                    pipeTo?: ((destination: WritableStream<any>, options?: StreamPipeOptions) => Promise<void>) | undefined;
-                    tee?: (() => [ReadableStream<any>, ReadableStream<any>]) | undefined;
-                } | {
-                    readonly size?: number | undefined;
-                    readonly type?: string | undefined;
-                    arrayBuffer?: (() => Promise<ArrayBuffer>) | undefined;
-                    bytes?: (() => Promise<Uint8Array<ArrayBuffer>>) | undefined;
-                    slice?: ((start?: number, end?: number, contentType?: string) => Blob) | undefined;
-                    stream?: (() => ReadableStream<Uint8Array<ArrayBuffer>>) | undefined;
-                    text?: (() => Promise<string>) | undefined;
-                } | {
-                    readonly byteLength?: number | undefined;
-                    slice?: ((begin?: number, end?: number) => ArrayBuffer) | undefined;
-                    readonly maxByteLength?: number | undefined;
-                    readonly resizable?: boolean | undefined;
-                    resize?: ((newByteLength?: number) => void) | undefined;
-                    readonly detached?: boolean | undefined;
-                    transfer?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                    transferToFixedLength?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                    readonly [Symbol.toStringTag]?: "ArrayBuffer" | undefined;
-                } | {
-                    readonly buffer?: {
-                        readonly byteLength?: number | undefined;
-                        slice?: ((begin?: number, end?: number) => ArrayBuffer) | undefined;
-                        readonly maxByteLength?: number | undefined;
-                        readonly resizable?: boolean | undefined;
-                        resize?: ((newByteLength?: number) => void) | undefined;
-                        readonly detached?: boolean | undefined;
-                        transfer?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                        transferToFixedLength?: ((newByteLength?: number) => ArrayBuffer) | undefined;
-                        readonly [Symbol.toStringTag]?: "ArrayBuffer" | undefined;
-                    } | undefined;
-                    readonly byteLength?: number | undefined;
-                    readonly byteOffset?: number | undefined;
-                } | {
-                    append?: {
-                        (name: string, value: string | Blob): void;
-                        (name: string, value: string): void;
-                        (name: string, blobValue: Blob, filename?: string): void;
-                    } | undefined;
-                    delete?: ((name: string) => void) | undefined;
-                    get?: ((name: string) => FormDataEntryValue | null) | undefined;
-                    getAll?: ((name: string) => FormDataEntryValue[]) | undefined;
-                    has?: ((name: string) => boolean) | undefined;
-                    set?: {
-                        (name: string, value: string | Blob): void;
-                        (name: string, value: string): void;
-                        (name: string, blobValue: Blob, filename?: string): void;
-                    } | undefined;
-                    forEach?: ((callbackfn: (value: FormDataEntryValue, key: string, parent: FormData) => void, thisArg?: any) => void) | undefined;
-                } | {
-                    readonly size?: number | undefined;
-                    append?: ((name: string, value: string) => void) | undefined;
-                    delete?: ((name: string, value?: string) => void) | undefined;
-                    get?: ((name: string) => string | null) | undefined;
-                    getAll?: ((name: string) => string[]) | undefined;
-                    has?: ((name: string, value?: string) => boolean) | undefined;
-                    set?: ((name: string, value: string) => void) | undefined;
-                    sort?: (() => void) | undefined;
-                    toString?: (() => string) | undefined;
-                    forEach?: ((callbackfn: (value: string, key: string, parent: URLSearchParams) => void, thisArg?: any) => void) | undefined;
-                } | null | undefined;
-                signal?: {
-                    readonly aborted?: boolean | undefined;
-                    onabort?: ((this: AbortSignal, ev: Event) => any) | null | undefined;
-                    readonly reason?: any;
-                    throwIfAborted?: (() => void) | undefined;
-                    addEventListener?: {
-                        <K extends keyof AbortSignalEventMap>(type: K, listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
-                        (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
-                    } | undefined;
-                    removeEventListener?: {
-                        <K extends keyof AbortSignalEventMap>(type: K, listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
-                        (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
-                    } | undefined;
-                    dispatchEvent?: ((event: Event) => boolean) | undefined;
-                } | undefined;
-            } | undefined;
-            flags?: {
-                overrided?: boolean | undefined;
-                restarted?: boolean | undefined;
-            } | undefined;
-            record?: {
-                [x: string]: any;
-            } | undefined;
-            policy?: any;
-        } | undefined;
+        readonly policy: {
+            readonly middlewares: VigorFetchPolicyMiddlewaresSchema<any>;
+        };
     }>>>;
     /** Configures the retry engine used to send the underlying request. */
     retry<const N extends VigorDeepPartial<VigorRetrySchema<any>>, R extends VigorRetrySchema<any>>(input: N | ((r: VigorRetry) => VigorRetry<R>) | VigorRetry<R>): VigorFetch<VigorFetchIn<VigorDeepMerge<T, {
@@ -4770,7 +2879,7 @@ declare const vigor: {
         policy: {
             target: (symbol & {
                 __brand: VigorBrand<"Core", "Symbol_Default">;
-            }) | Response;
+            }) | Request | Response;
             middlewares: {
                 readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
                 readonly before: [];
@@ -5434,10 +3543,10 @@ declare const vigor: {
                 };
             };
             headers: {};
-            body: symbol & {
+            method: symbol & {
                 __brand: VigorBrand<"Core", "Symbol_Empty">;
             };
-            method: symbol & {
+            body: symbol & {
                 __brand: VigorBrand<"Core", "Symbol_Empty">;
             };
             origin: string;
@@ -5647,6 +3756,1430 @@ declare const vigor: {
             readonly record: {};
         };
     }>;
+    readonly builders: {
+        readonly fetch: {
+            readonly settings: () => VigorFetchPolicySettings<{
+                readonly __brand: VigorBrand<"Fetch", "Schema">;
+                readonly policy: {
+                    readonly __brand: VigorBrand<"Fetch", "Policy<Schema">;
+                    readonly method: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                    };
+                    readonly origin: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                    };
+                    readonly path: [];
+                    readonly query: [];
+                    readonly hash: "";
+                    readonly headers: {};
+                    readonly body: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                    };
+                    readonly extra: {};
+                    readonly settings: {
+                        readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
+                        readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"];
+                        readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
+                        readonly maxRestarts: 3;
+                        readonly default: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                    };
+                    readonly middlewares: {
+                        readonly __brand: VigorBrand<"Fetch", "Policy<Middlewares<Schema">;
+                        readonly before: [];
+                        readonly after: [];
+                        readonly onResult: [];
+                        readonly onError: [];
+                    };
+                    readonly retry: {
+                        readonly __brand: VigorBrand<"Retry", "Schema">;
+                        readonly policy: {
+                            readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                            readonly target: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            readonly abortSignals: [];
+                            readonly settings: {
+                                readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                                readonly default: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                };
+                                readonly maxAttempts: 5;
+                                readonly maxRestarts: 3;
+                                readonly timeout: 20000;
+                            };
+                            readonly middlewares: {
+                                readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                                readonly before: [];
+                                readonly after: [];
+                                readonly onResult: [];
+                                readonly retryIf: [];
+                                readonly onRetry: [];
+                                readonly onError: [];
+                            };
+                            readonly algorithms: {
+                                readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                                readonly _tag: "constant";
+                                readonly jitter: 1000;
+                                readonly interval: 2000;
+                                readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                            };
+                        };
+                        readonly context: {
+                            readonly __brand: VigorBrand<"Retry", "Context<Schema">;
+                            readonly result: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Default">;
+                            };
+                            readonly error: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Default">;
+                            };
+                            readonly system: {
+                                readonly delay: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly attempt: 0;
+                            };
+                            readonly flags: {
+                                readonly doRetry: true;
+                                readonly doRestart: false;
+                                readonly brokeRetry: false;
+                                readonly overridden: false;
+                            };
+                            readonly record: {};
+                            readonly policy: {
+                                readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                                readonly target: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                };
+                                readonly abortSignals: [];
+                                readonly settings: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                                    readonly default: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                    };
+                                    readonly maxAttempts: 5;
+                                    readonly maxRestarts: 3;
+                                    readonly timeout: 20000;
+                                };
+                                readonly middlewares: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                                    readonly before: [];
+                                    readonly after: [];
+                                    readonly onResult: [];
+                                    readonly retryIf: [];
+                                    readonly onRetry: [];
+                                    readonly onError: [];
+                                };
+                                readonly algorithms: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                                    readonly _tag: "constant";
+                                    readonly jitter: 1000;
+                                    readonly interval: 2000;
+                                    readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                                };
+                            };
+                        };
+                    };
+                    readonly parse: {
+                        readonly __brand: VigorBrand<"Parse", "Schema">;
+                        readonly policy: {
+                            readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                            readonly target: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Default">;
+                            };
+                            readonly settings: {
+                                readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                                readonly raw: false;
+                                readonly default: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                };
+                                readonly maxRestarts: 3;
+                            };
+                            readonly middlewares: {
+                                readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                                readonly before: [];
+                                readonly after: [];
+                                readonly onResult: [];
+                                readonly onError: [];
+                            };
+                            readonly strategies: {
+                                readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                                readonly funcs: VigorParseStrategyFunc[];
+                            };
+                        };
+                        readonly context: {
+                            readonly __brand: VigorBrand<"Parse", "Context<Schema">;
+                            readonly result: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Default">;
+                            };
+                            readonly error: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Default">;
+                            };
+                            readonly response: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Default">;
+                            };
+                            readonly flags: {
+                                readonly overrided: false;
+                                readonly restarted: false;
+                            };
+                            readonly record: {};
+                            readonly policy: {
+                                readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                                readonly target: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly settings: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                                    readonly raw: false;
+                                    readonly default: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                    };
+                                    readonly maxRestarts: 3;
+                                };
+                                readonly middlewares: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                                    readonly before: [];
+                                    readonly after: [];
+                                    readonly onResult: [];
+                                    readonly onError: [];
+                                };
+                                readonly strategies: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                                    readonly funcs: VigorParseStrategyFunc[];
+                                };
+                            };
+                        };
+                    };
+                };
+                readonly context: {
+                    readonly __brand: VigorBrand<"Fetch", "Context<Schema">;
+                    readonly href: "";
+                    readonly response: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly result: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly error: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly options: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly flags: {
+                        readonly overrided: false;
+                        readonly restarted: false;
+                    };
+                    readonly record: {};
+                    readonly policy: {
+                        readonly __brand: VigorBrand<"Fetch", "Policy<Schema">;
+                        readonly method: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly origin: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly path: [];
+                        readonly query: [];
+                        readonly hash: "";
+                        readonly headers: {};
+                        readonly body: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly extra: {};
+                        readonly settings: {
+                            readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
+                            readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"];
+                            readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
+                            readonly maxRestarts: 3;
+                            readonly default: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                        };
+                        readonly middlewares: {
+                            readonly __brand: VigorBrand<"Fetch", "Policy<Middlewares<Schema">;
+                            readonly before: [];
+                            readonly after: [];
+                            readonly onResult: [];
+                            readonly onError: [];
+                        };
+                        readonly retry: {
+                            readonly __brand: VigorBrand<"Retry", "Schema">;
+                            readonly policy: {
+                                readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                                readonly target: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                };
+                                readonly abortSignals: [];
+                                readonly settings: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                                    readonly default: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                    };
+                                    readonly maxAttempts: 5;
+                                    readonly maxRestarts: 3;
+                                    readonly timeout: 20000;
+                                };
+                                readonly middlewares: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                                    readonly before: [];
+                                    readonly after: [];
+                                    readonly onResult: [];
+                                    readonly retryIf: [];
+                                    readonly onRetry: [];
+                                    readonly onError: [];
+                                };
+                                readonly algorithms: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                                    readonly _tag: "constant";
+                                    readonly jitter: 1000;
+                                    readonly interval: 2000;
+                                    readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                                };
+                            };
+                            readonly context: {
+                                readonly __brand: VigorBrand<"Retry", "Context<Schema">;
+                                readonly result: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly error: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly system: {
+                                    readonly delay: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                                    };
+                                    readonly attempt: 0;
+                                };
+                                readonly flags: {
+                                    readonly doRetry: true;
+                                    readonly doRestart: false;
+                                    readonly brokeRetry: false;
+                                    readonly overridden: false;
+                                };
+                                readonly record: {};
+                                readonly policy: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                                    readonly target: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                    };
+                                    readonly abortSignals: [];
+                                    readonly settings: {
+                                        readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                                        readonly default: symbol & {
+                                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                        };
+                                        readonly maxAttempts: 5;
+                                        readonly maxRestarts: 3;
+                                        readonly timeout: 20000;
+                                    };
+                                    readonly middlewares: {
+                                        readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                                        readonly before: [];
+                                        readonly after: [];
+                                        readonly onResult: [];
+                                        readonly retryIf: [];
+                                        readonly onRetry: [];
+                                        readonly onError: [];
+                                    };
+                                    readonly algorithms: {
+                                        readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                                        readonly _tag: "constant";
+                                        readonly jitter: 1000;
+                                        readonly interval: 2000;
+                                        readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                                    };
+                                };
+                            };
+                        };
+                        readonly parse: {
+                            readonly __brand: VigorBrand<"Parse", "Schema">;
+                            readonly policy: {
+                                readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                                readonly target: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly settings: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                                    readonly raw: false;
+                                    readonly default: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                    };
+                                    readonly maxRestarts: 3;
+                                };
+                                readonly middlewares: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                                    readonly before: [];
+                                    readonly after: [];
+                                    readonly onResult: [];
+                                    readonly onError: [];
+                                };
+                                readonly strategies: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                                    readonly funcs: VigorParseStrategyFunc[];
+                                };
+                            };
+                            readonly context: {
+                                readonly __brand: VigorBrand<"Parse", "Context<Schema">;
+                                readonly result: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly error: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly response: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly flags: {
+                                    readonly overrided: false;
+                                    readonly restarted: false;
+                                };
+                                readonly record: {};
+                                readonly policy: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                                    readonly target: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                                    };
+                                    readonly settings: {
+                                        readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                                        readonly raw: false;
+                                        readonly default: symbol & {
+                                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                        };
+                                        readonly maxRestarts: 3;
+                                    };
+                                    readonly middlewares: {
+                                        readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                                        readonly before: [];
+                                        readonly after: [];
+                                        readonly onResult: [];
+                                        readonly onError: [];
+                                    };
+                                    readonly strategies: {
+                                        readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                                        readonly funcs: VigorParseStrategyFunc[];
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            }>;
+            readonly middlewares: () => VigorFetchPolicyMiddlewares<{
+                readonly __brand: VigorBrand<"Fetch", "Schema">;
+                readonly policy: {
+                    readonly __brand: VigorBrand<"Fetch", "Policy<Schema">;
+                    readonly method: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                    };
+                    readonly origin: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                    };
+                    readonly path: [];
+                    readonly query: [];
+                    readonly hash: "";
+                    readonly headers: {};
+                    readonly body: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                    };
+                    readonly extra: {};
+                    readonly settings: {
+                        readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
+                        readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"];
+                        readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
+                        readonly maxRestarts: 3;
+                        readonly default: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                    };
+                    readonly middlewares: {
+                        readonly __brand: VigorBrand<"Fetch", "Policy<Middlewares<Schema">;
+                        readonly before: [];
+                        readonly after: [];
+                        readonly onResult: [];
+                        readonly onError: [];
+                    };
+                    readonly retry: {
+                        readonly __brand: VigorBrand<"Retry", "Schema">;
+                        readonly policy: {
+                            readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                            readonly target: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            readonly abortSignals: [];
+                            readonly settings: {
+                                readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                                readonly default: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                };
+                                readonly maxAttempts: 5;
+                                readonly maxRestarts: 3;
+                                readonly timeout: 20000;
+                            };
+                            readonly middlewares: {
+                                readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                                readonly before: [];
+                                readonly after: [];
+                                readonly onResult: [];
+                                readonly retryIf: [];
+                                readonly onRetry: [];
+                                readonly onError: [];
+                            };
+                            readonly algorithms: {
+                                readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                                readonly _tag: "constant";
+                                readonly jitter: 1000;
+                                readonly interval: 2000;
+                                readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                            };
+                        };
+                        readonly context: {
+                            readonly __brand: VigorBrand<"Retry", "Context<Schema">;
+                            readonly result: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Default">;
+                            };
+                            readonly error: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Default">;
+                            };
+                            readonly system: {
+                                readonly delay: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly attempt: 0;
+                            };
+                            readonly flags: {
+                                readonly doRetry: true;
+                                readonly doRestart: false;
+                                readonly brokeRetry: false;
+                                readonly overridden: false;
+                            };
+                            readonly record: {};
+                            readonly policy: {
+                                readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                                readonly target: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                };
+                                readonly abortSignals: [];
+                                readonly settings: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                                    readonly default: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                    };
+                                    readonly maxAttempts: 5;
+                                    readonly maxRestarts: 3;
+                                    readonly timeout: 20000;
+                                };
+                                readonly middlewares: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                                    readonly before: [];
+                                    readonly after: [];
+                                    readonly onResult: [];
+                                    readonly retryIf: [];
+                                    readonly onRetry: [];
+                                    readonly onError: [];
+                                };
+                                readonly algorithms: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                                    readonly _tag: "constant";
+                                    readonly jitter: 1000;
+                                    readonly interval: 2000;
+                                    readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                                };
+                            };
+                        };
+                    };
+                    readonly parse: {
+                        readonly __brand: VigorBrand<"Parse", "Schema">;
+                        readonly policy: {
+                            readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                            readonly target: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Default">;
+                            };
+                            readonly settings: {
+                                readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                                readonly raw: false;
+                                readonly default: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                };
+                                readonly maxRestarts: 3;
+                            };
+                            readonly middlewares: {
+                                readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                                readonly before: [];
+                                readonly after: [];
+                                readonly onResult: [];
+                                readonly onError: [];
+                            };
+                            readonly strategies: {
+                                readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                                readonly funcs: VigorParseStrategyFunc[];
+                            };
+                        };
+                        readonly context: {
+                            readonly __brand: VigorBrand<"Parse", "Context<Schema">;
+                            readonly result: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Default">;
+                            };
+                            readonly error: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Default">;
+                            };
+                            readonly response: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Default">;
+                            };
+                            readonly flags: {
+                                readonly overrided: false;
+                                readonly restarted: false;
+                            };
+                            readonly record: {};
+                            readonly policy: {
+                                readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                                readonly target: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly settings: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                                    readonly raw: false;
+                                    readonly default: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                    };
+                                    readonly maxRestarts: 3;
+                                };
+                                readonly middlewares: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                                    readonly before: [];
+                                    readonly after: [];
+                                    readonly onResult: [];
+                                    readonly onError: [];
+                                };
+                                readonly strategies: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                                    readonly funcs: VigorParseStrategyFunc[];
+                                };
+                            };
+                        };
+                    };
+                };
+                readonly context: {
+                    readonly __brand: VigorBrand<"Fetch", "Context<Schema">;
+                    readonly href: "";
+                    readonly response: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly result: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly error: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly options: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly flags: {
+                        readonly overrided: false;
+                        readonly restarted: false;
+                    };
+                    readonly record: {};
+                    readonly policy: {
+                        readonly __brand: VigorBrand<"Fetch", "Policy<Schema">;
+                        readonly method: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly origin: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly path: [];
+                        readonly query: [];
+                        readonly hash: "";
+                        readonly headers: {};
+                        readonly body: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly extra: {};
+                        readonly settings: {
+                            readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
+                            readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"];
+                            readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
+                            readonly maxRestarts: 3;
+                            readonly default: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                        };
+                        readonly middlewares: {
+                            readonly __brand: VigorBrand<"Fetch", "Policy<Middlewares<Schema">;
+                            readonly before: [];
+                            readonly after: [];
+                            readonly onResult: [];
+                            readonly onError: [];
+                        };
+                        readonly retry: {
+                            readonly __brand: VigorBrand<"Retry", "Schema">;
+                            readonly policy: {
+                                readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                                readonly target: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                };
+                                readonly abortSignals: [];
+                                readonly settings: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                                    readonly default: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                    };
+                                    readonly maxAttempts: 5;
+                                    readonly maxRestarts: 3;
+                                    readonly timeout: 20000;
+                                };
+                                readonly middlewares: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                                    readonly before: [];
+                                    readonly after: [];
+                                    readonly onResult: [];
+                                    readonly retryIf: [];
+                                    readonly onRetry: [];
+                                    readonly onError: [];
+                                };
+                                readonly algorithms: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                                    readonly _tag: "constant";
+                                    readonly jitter: 1000;
+                                    readonly interval: 2000;
+                                    readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                                };
+                            };
+                            readonly context: {
+                                readonly __brand: VigorBrand<"Retry", "Context<Schema">;
+                                readonly result: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly error: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly system: {
+                                    readonly delay: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                                    };
+                                    readonly attempt: 0;
+                                };
+                                readonly flags: {
+                                    readonly doRetry: true;
+                                    readonly doRestart: false;
+                                    readonly brokeRetry: false;
+                                    readonly overridden: false;
+                                };
+                                readonly record: {};
+                                readonly policy: {
+                                    readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                                    readonly target: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                    };
+                                    readonly abortSignals: [];
+                                    readonly settings: {
+                                        readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                                        readonly default: symbol & {
+                                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                        };
+                                        readonly maxAttempts: 5;
+                                        readonly maxRestarts: 3;
+                                        readonly timeout: 20000;
+                                    };
+                                    readonly middlewares: {
+                                        readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                                        readonly before: [];
+                                        readonly after: [];
+                                        readonly onResult: [];
+                                        readonly retryIf: [];
+                                        readonly onRetry: [];
+                                        readonly onError: [];
+                                    };
+                                    readonly algorithms: {
+                                        readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                                        readonly _tag: "constant";
+                                        readonly jitter: 1000;
+                                        readonly interval: 2000;
+                                        readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                                    };
+                                };
+                            };
+                        };
+                        readonly parse: {
+                            readonly __brand: VigorBrand<"Parse", "Schema">;
+                            readonly policy: {
+                                readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                                readonly target: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly settings: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                                    readonly raw: false;
+                                    readonly default: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                    };
+                                    readonly maxRestarts: 3;
+                                };
+                                readonly middlewares: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                                    readonly before: [];
+                                    readonly after: [];
+                                    readonly onResult: [];
+                                    readonly onError: [];
+                                };
+                                readonly strategies: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                                    readonly funcs: VigorParseStrategyFunc[];
+                                };
+                            };
+                            readonly context: {
+                                readonly __brand: VigorBrand<"Parse", "Context<Schema">;
+                                readonly result: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly error: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly response: symbol & {
+                                    __brand: VigorBrand<"Core", "Symbol_Default">;
+                                };
+                                readonly flags: {
+                                    readonly overrided: false;
+                                    readonly restarted: false;
+                                };
+                                readonly record: {};
+                                readonly policy: {
+                                    readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                                    readonly target: symbol & {
+                                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                                    };
+                                    readonly settings: {
+                                        readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                                        readonly raw: false;
+                                        readonly default: symbol & {
+                                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                                        };
+                                        readonly maxRestarts: 3;
+                                    };
+                                    readonly middlewares: {
+                                        readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                                        readonly before: [];
+                                        readonly after: [];
+                                        readonly onResult: [];
+                                        readonly onError: [];
+                                    };
+                                    readonly strategies: {
+                                        readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                                        readonly funcs: VigorParseStrategyFunc[];
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            }>;
+        };
+        readonly retry: {
+            readonly settings: () => VigorRetryPolicySettings<{
+                readonly __brand: VigorBrand<"Retry", "Schema">;
+                readonly policy: {
+                    readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                    readonly target: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                    };
+                    readonly abortSignals: [];
+                    readonly settings: {
+                        readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                        readonly default: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly maxAttempts: 5;
+                        readonly maxRestarts: 3;
+                        readonly timeout: 20000;
+                    };
+                    readonly middlewares: {
+                        readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                        readonly before: [];
+                        readonly after: [];
+                        readonly onResult: [];
+                        readonly retryIf: [];
+                        readonly onRetry: [];
+                        readonly onError: [];
+                    };
+                    readonly algorithms: {
+                        readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                        readonly _tag: "constant";
+                        readonly jitter: 1000;
+                        readonly interval: 2000;
+                        readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                    };
+                };
+                readonly context: {
+                    readonly __brand: VigorBrand<"Retry", "Context<Schema">;
+                    readonly result: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly error: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly system: {
+                        readonly delay: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Default">;
+                        };
+                        readonly attempt: 0;
+                    };
+                    readonly flags: {
+                        readonly doRetry: true;
+                        readonly doRestart: false;
+                        readonly brokeRetry: false;
+                        readonly overridden: false;
+                    };
+                    readonly record: {};
+                    readonly policy: {
+                        readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                        readonly target: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly abortSignals: [];
+                        readonly settings: {
+                            readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                            readonly default: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            readonly maxAttempts: 5;
+                            readonly maxRestarts: 3;
+                            readonly timeout: 20000;
+                        };
+                        readonly middlewares: {
+                            readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                            readonly before: [];
+                            readonly after: [];
+                            readonly onResult: [];
+                            readonly retryIf: [];
+                            readonly onRetry: [];
+                            readonly onError: [];
+                        };
+                        readonly algorithms: {
+                            readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                            readonly _tag: "constant";
+                            readonly jitter: 1000;
+                            readonly interval: 2000;
+                            readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                        };
+                    };
+                };
+            }>;
+            readonly middlewares: () => VigorRetryPolicyMiddlewares<{
+                readonly __brand: VigorBrand<"Retry", "Schema">;
+                readonly policy: {
+                    readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                    readonly target: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                    };
+                    readonly abortSignals: [];
+                    readonly settings: {
+                        readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                        readonly default: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly maxAttempts: 5;
+                        readonly maxRestarts: 3;
+                        readonly timeout: 20000;
+                    };
+                    readonly middlewares: {
+                        readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                        readonly before: [];
+                        readonly after: [];
+                        readonly onResult: [];
+                        readonly retryIf: [];
+                        readonly onRetry: [];
+                        readonly onError: [];
+                    };
+                    readonly algorithms: {
+                        readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                        readonly _tag: "constant";
+                        readonly jitter: 1000;
+                        readonly interval: 2000;
+                        readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                    };
+                };
+                readonly context: {
+                    readonly __brand: VigorBrand<"Retry", "Context<Schema">;
+                    readonly result: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly error: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly system: {
+                        readonly delay: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Default">;
+                        };
+                        readonly attempt: 0;
+                    };
+                    readonly flags: {
+                        readonly doRetry: true;
+                        readonly doRestart: false;
+                        readonly brokeRetry: false;
+                        readonly overridden: false;
+                    };
+                    readonly record: {};
+                    readonly policy: {
+                        readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                        readonly target: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly abortSignals: [];
+                        readonly settings: {
+                            readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                            readonly default: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            readonly maxAttempts: 5;
+                            readonly maxRestarts: 3;
+                            readonly timeout: 20000;
+                        };
+                        readonly middlewares: {
+                            readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                            readonly before: [];
+                            readonly after: [];
+                            readonly onResult: [];
+                            readonly retryIf: [];
+                            readonly onRetry: [];
+                            readonly onError: [];
+                        };
+                        readonly algorithms: {
+                            readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                            readonly _tag: "constant";
+                            readonly jitter: 1000;
+                            readonly interval: 2000;
+                            readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                        };
+                    };
+                };
+            }>;
+            readonly algorithms: () => VigorRetryPolicyAlgorithms<{
+                readonly __brand: VigorBrand<"Retry", "Schema">;
+                readonly policy: {
+                    readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                    readonly target: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                    };
+                    readonly abortSignals: [];
+                    readonly settings: {
+                        readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                        readonly default: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly maxAttempts: 5;
+                        readonly maxRestarts: 3;
+                        readonly timeout: 20000;
+                    };
+                    readonly middlewares: {
+                        readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                        readonly before: [];
+                        readonly after: [];
+                        readonly onResult: [];
+                        readonly retryIf: [];
+                        readonly onRetry: [];
+                        readonly onError: [];
+                    };
+                    readonly algorithms: {
+                        readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                        readonly _tag: "constant";
+                        readonly jitter: 1000;
+                        readonly interval: 2000;
+                        readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                    };
+                };
+                readonly context: {
+                    readonly __brand: VigorBrand<"Retry", "Context<Schema">;
+                    readonly result: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly error: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly system: {
+                        readonly delay: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Default">;
+                        };
+                        readonly attempt: 0;
+                    };
+                    readonly flags: {
+                        readonly doRetry: true;
+                        readonly doRestart: false;
+                        readonly brokeRetry: false;
+                        readonly overridden: false;
+                    };
+                    readonly record: {};
+                    readonly policy: {
+                        readonly __brand: VigorBrand<"Retry", "Policy<Schema">;
+                        readonly target: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly abortSignals: [];
+                        readonly settings: {
+                            readonly __brand: VigorBrand<"Retry", "Policy<Settings<Schema">;
+                            readonly default: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            readonly maxAttempts: 5;
+                            readonly maxRestarts: 3;
+                            readonly timeout: 20000;
+                        };
+                        readonly middlewares: {
+                            readonly __brand: VigorBrand<"Retry", "Policy<Middlewares<Schema">;
+                            readonly before: [];
+                            readonly after: [];
+                            readonly onResult: [];
+                            readonly retryIf: [];
+                            readonly onRetry: [];
+                            readonly onError: [];
+                        };
+                        readonly algorithms: {
+                            readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                            readonly _tag: "constant";
+                            readonly jitter: 1000;
+                            readonly interval: 2000;
+                            readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                        };
+                    };
+                };
+            }>;
+            readonly algorithm: {
+                readonly constant: () => VigorRetryPolicyAlgorithmsConstant<{
+                    readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Constant<Schema">;
+                    readonly _tag: "constant";
+                    readonly jitter: 1000;
+                    readonly interval: 2000;
+                    readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsConstantSchema<any>) => number;
+                }>;
+                readonly linear: () => VigorRetryPolicyAlgorithmsLinear<{
+                    readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Linear<Schema">;
+                    readonly _tag: "linear";
+                    readonly jitter: 1000;
+                    readonly initial: 500;
+                    readonly increment: 1000;
+                    readonly minDelay: 0;
+                    readonly maxDelay: 10000;
+                    readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsLinearSchema<any>) => number;
+                }>;
+                readonly backoff: () => VigorRetryPolicyAlgorithmsBackoff<{
+                    readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Backoff<Schema">;
+                    readonly _tag: "backoff";
+                    readonly jitter: 800;
+                    readonly initial: 0;
+                    readonly multiplier: 1.7;
+                    readonly unit: 1000;
+                    readonly minDelay: 500;
+                    readonly maxDelay: 10000;
+                    readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsBackoffSchema<any>) => number;
+                }>;
+                readonly custom: () => VigorRetryPolicyAlgorithmsCustom<{
+                    readonly __brand: VigorBrand<"Retry", "Policy<Algorithms<Custom<Schema">;
+                    readonly _tag: "custom";
+                    readonly jitter: 800;
+                    readonly minDelay: 500;
+                    readonly maxDelay: 10000;
+                    readonly target: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Empty">;
+                    };
+                    readonly _calculateDelay: (att: number, config: VigorRetryPolicyAlgorithmsCustomSchema<any>) => number;
+                }>;
+            };
+        };
+        readonly parse: {
+            readonly settings: () => VigorParsePolicySettings<{
+                readonly __brand: VigorBrand<"Parse", "Schema">;
+                readonly policy: {
+                    readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                    readonly target: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly settings: {
+                        readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                        readonly raw: false;
+                        readonly default: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly maxRestarts: 3;
+                    };
+                    readonly middlewares: {
+                        readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                        readonly before: [];
+                        readonly after: [];
+                        readonly onResult: [];
+                        readonly onError: [];
+                    };
+                    readonly strategies: {
+                        readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                        readonly funcs: VigorParseStrategyFunc[];
+                    };
+                };
+                readonly context: {
+                    readonly __brand: VigorBrand<"Parse", "Context<Schema">;
+                    readonly result: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly error: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly response: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly flags: {
+                        readonly overrided: false;
+                        readonly restarted: false;
+                    };
+                    readonly record: {};
+                    readonly policy: {
+                        readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                        readonly target: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Default">;
+                        };
+                        readonly settings: {
+                            readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                            readonly raw: false;
+                            readonly default: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            readonly maxRestarts: 3;
+                        };
+                        readonly middlewares: {
+                            readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                            readonly before: [];
+                            readonly after: [];
+                            readonly onResult: [];
+                            readonly onError: [];
+                        };
+                        readonly strategies: {
+                            readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                            readonly funcs: VigorParseStrategyFunc[];
+                        };
+                    };
+                };
+            }>;
+            readonly middlewares: () => VigorParsePolicyMiddlewares<{
+                readonly __brand: VigorBrand<"Parse", "Schema">;
+                readonly policy: {
+                    readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                    readonly target: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly settings: {
+                        readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                        readonly raw: false;
+                        readonly default: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly maxRestarts: 3;
+                    };
+                    readonly middlewares: {
+                        readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                        readonly before: [];
+                        readonly after: [];
+                        readonly onResult: [];
+                        readonly onError: [];
+                    };
+                    readonly strategies: {
+                        readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                        readonly funcs: VigorParseStrategyFunc[];
+                    };
+                };
+                readonly context: {
+                    readonly __brand: VigorBrand<"Parse", "Context<Schema">;
+                    readonly result: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly error: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly response: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly flags: {
+                        readonly overrided: false;
+                        readonly restarted: false;
+                    };
+                    readonly record: {};
+                    readonly policy: {
+                        readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                        readonly target: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Default">;
+                        };
+                        readonly settings: {
+                            readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                            readonly raw: false;
+                            readonly default: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            readonly maxRestarts: 3;
+                        };
+                        readonly middlewares: {
+                            readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                            readonly before: [];
+                            readonly after: [];
+                            readonly onResult: [];
+                            readonly onError: [];
+                        };
+                        readonly strategies: {
+                            readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                            readonly funcs: VigorParseStrategyFunc[];
+                        };
+                    };
+                };
+            }>;
+            readonly strategies: () => VigorParsePolicyStrategies<{
+                readonly __brand: VigorBrand<"Parse", "Schema">;
+                readonly policy: {
+                    readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                    readonly target: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly settings: {
+                        readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                        readonly raw: false;
+                        readonly default: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly maxRestarts: 3;
+                    };
+                    readonly middlewares: {
+                        readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                        readonly before: [];
+                        readonly after: [];
+                        readonly onResult: [];
+                        readonly onError: [];
+                    };
+                    readonly strategies: {
+                        readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                        readonly funcs: VigorParseStrategyFunc[];
+                    };
+                };
+                readonly context: {
+                    readonly __brand: VigorBrand<"Parse", "Context<Schema">;
+                    readonly result: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly error: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly response: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly flags: {
+                        readonly overrided: false;
+                        readonly restarted: false;
+                    };
+                    readonly record: {};
+                    readonly policy: {
+                        readonly __brand: VigorBrand<"Parse", "Policy<Schema">;
+                        readonly target: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Default">;
+                        };
+                        readonly settings: {
+                            readonly __brand: VigorBrand<"Parse", "Policy<Settings<Schema">;
+                            readonly raw: false;
+                            readonly default: symbol & {
+                                __brand: VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            readonly maxRestarts: 3;
+                        };
+                        readonly middlewares: {
+                            readonly __brand: VigorBrand<"Parse", "Policy<Middlewares<Schema">;
+                            readonly before: [];
+                            readonly after: [];
+                            readonly onResult: [];
+                            readonly onError: [];
+                        };
+                        readonly strategies: {
+                            readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
+                            readonly funcs: VigorParseStrategyFunc[];
+                        };
+                    };
+                };
+            }>;
+        };
+        readonly all: {
+            readonly settings: () => VigorAllPolicySettings<{
+                readonly __brand: VigorBrand<"All", "Schema">;
+                readonly policy: {
+                    readonly __brand: VigorBrand<"All", "Policy<Schema">;
+                    readonly target: VigorAllTask[];
+                    readonly settings: {
+                        readonly __brand: VigorBrand<"All", "Policy<Settings<Schema">;
+                        readonly concurrency: 5;
+                        readonly onlySuccess: false;
+                    };
+                    readonly middlewares: {
+                        readonly __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
+                        readonly before: VigorAllEachMiddlewareFn[];
+                        readonly after: VigorAllEachMiddlewareFn[];
+                        readonly onError: VigorAllEachOnErrorFn[];
+                    };
+                };
+                readonly context: {
+                    readonly __brand: VigorBrand<"All", "Context<Schema">;
+                    readonly result: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly policy: {
+                        readonly __brand: VigorBrand<"All", "Policy<Schema">;
+                        readonly target: VigorAllTask[];
+                        readonly settings: {
+                            readonly __brand: VigorBrand<"All", "Policy<Settings<Schema">;
+                            readonly concurrency: 5;
+                            readonly onlySuccess: false;
+                        };
+                        readonly middlewares: {
+                            readonly __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
+                            readonly before: VigorAllEachMiddlewareFn[];
+                            readonly after: VigorAllEachMiddlewareFn[];
+                            readonly onError: VigorAllEachOnErrorFn[];
+                        };
+                    };
+                    readonly record: {};
+                };
+            }>;
+            readonly middlewares: () => VigorAllPolicyMiddlewares<{
+                readonly __brand: VigorBrand<"All", "Schema">;
+                readonly policy: {
+                    readonly __brand: VigorBrand<"All", "Policy<Schema">;
+                    readonly target: VigorAllTask[];
+                    readonly settings: {
+                        readonly __brand: VigorBrand<"All", "Policy<Settings<Schema">;
+                        readonly concurrency: 5;
+                        readonly onlySuccess: false;
+                    };
+                    readonly middlewares: {
+                        readonly __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
+                        readonly before: VigorAllEachMiddlewareFn[];
+                        readonly after: VigorAllEachMiddlewareFn[];
+                        readonly onError: VigorAllEachOnErrorFn[];
+                    };
+                };
+                readonly context: {
+                    readonly __brand: VigorBrand<"All", "Context<Schema">;
+                    readonly result: symbol & {
+                        __brand: VigorBrand<"Core", "Symbol_Default">;
+                    };
+                    readonly policy: {
+                        readonly __brand: VigorBrand<"All", "Policy<Schema">;
+                        readonly target: VigorAllTask[];
+                        readonly settings: {
+                            readonly __brand: VigorBrand<"All", "Policy<Settings<Schema">;
+                            readonly concurrency: 5;
+                            readonly onlySuccess: false;
+                        };
+                        readonly middlewares: {
+                            readonly __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
+                            readonly before: VigorAllEachMiddlewareFn[];
+                            readonly after: VigorAllEachMiddlewareFn[];
+                            readonly onError: VigorAllEachOnErrorFn[];
+                        };
+                    };
+                    readonly record: {};
+                };
+            }>;
+        };
+    };
 };
 
 type VigorErrorOptions<D, T> = {
@@ -5685,9 +5218,11 @@ declare const VigorRetryErrorMessageFuncs: {
     }) => string;
     readonly RETRY_EXHAUSTED: ({ maxAttempts }: {
         maxAttempts: number;
+        error: unknown;
     }) => string;
     readonly RESTART_EXHAUSTED: ({ maxAttempts }: {
         maxAttempts: number;
+        error: unknown;
     }) => string;
     readonly TIMED_OUT: ({ limit }: {
         limit: number;
@@ -5720,6 +5255,7 @@ declare const VigorParseErrorMessageFuncs: {
     }) => string;
     readonly RESTART_EXHAUSTED: ({ maxAttempts }: {
         maxAttempts: number;
+        error: unknown;
     }) => string;
 };
 type VigorParseErrorCodes = keyof typeof VigorParseErrorMessageFuncs;
@@ -5753,6 +5289,7 @@ declare const VigorFetchErrorMessageFuncs: {
     }) => string;
     readonly RESTART_EXHAUSTED: ({ maxAttempts }: {
         maxAttempts: number;
+        error: unknown;
     }) => string;
 };
 type VigorFetchErrorCodes = keyof typeof VigorFetchErrorMessageFuncs;

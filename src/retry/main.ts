@@ -294,8 +294,10 @@ export class VigorRetry<
 
             throw new VigorRetryError("RETRY_EXHAUSTED", {
                 method: "request",
+                cause: ctx.error,
                 data: {
-                    maxAttempts: ctx.policy.settings.maxAttempts
+                    maxAttempts: ctx.policy.settings.maxAttempts,
+                    error: ctx.error
                 }
             })
         } catch(error) {
@@ -324,8 +326,10 @@ export class VigorRetry<
             if(ctx.flags.doRestart) {
                 if(restartAttempt + 1 > ctx.policy.settings.maxRestarts) throw new VigorRetryError("RESTART_EXHAUSTED", {
                     method: "request",
+                    cause: ctx.error,
                     data: {
-                        maxAttempts: ctx.policy.settings.maxRestarts
+                        maxAttempts: ctx.policy.settings.maxRestarts,
+                        error: ctx.error
                     }
                 })
                 return await this.requestRuntime(restartAttempt + 1)

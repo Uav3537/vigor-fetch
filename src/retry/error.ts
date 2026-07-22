@@ -3,8 +3,8 @@ import { VigorRetrySchema } from "./main";
 
 export const VigorRetryErrorMessageFuncs = {
     VALUE_REQUIRED: ({ key }: { key: string }) => `Value Required (missing ${key})`,
-    RETRY_EXHAUSTED: ({ maxAttempts }: { maxAttempts: number }) => `Retry exhausted, (max ${maxAttempts})`,
-    RESTART_EXHAUSTED: ({ maxAttempts }: { maxAttempts: number }) => `Restart exhausted, (max ${maxAttempts})`,
+    RETRY_EXHAUSTED: ({ maxAttempts }: { maxAttempts: number, error: unknown }) => `Retry exhausted, (max ${maxAttempts})`,
+    RESTART_EXHAUSTED: ({ maxAttempts }: { maxAttempts: number, error: unknown }) => `Restart exhausted, (max ${maxAttempts})`,
     TIMED_OUT: ({ limit }: { limit: number }) => `Timeout: exceeded ${limit}ms`,
 } as const
 

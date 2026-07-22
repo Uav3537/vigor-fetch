@@ -240,7 +240,9 @@ class VigorAll extends VigorStatus {
             const result = typeof input === 'function'
                 ? input(new VigorAllPolicySettings())
                 : input;
-            return this._next(result.config);
+            return this._next({
+                policy: { settings: result.config.policy.settings }
+            });
         }
         return this._next({ policy: { settings: input } });
     }
@@ -250,7 +252,9 @@ class VigorAll extends VigorStatus {
             const result = typeof input === 'function'
                 ? input(new VigorAllPolicyMiddlewares())
                 : input;
-            return this._next(result.config);
+            return this._next({
+                policy: { middlewares: result.config.policy.middlewares }
+            });
         }
         return this._next({ policy: { middlewares: input } });
     }
@@ -804,7 +808,9 @@ class VigorRetry extends VigorStatus {
             const result = typeof input === 'function'
                 ? input(new VigorRetryPolicySettings())
                 : input;
-            return this._next(result.config);
+            return this._next({
+                policy: { settings: result.config.policy.settings }
+            });
         }
         return this._next({
             policy: { settings: input }
@@ -816,7 +822,9 @@ class VigorRetry extends VigorStatus {
             const result = typeof input === 'function'
                 ? input(new VigorRetryPolicyMiddlewares())
                 : input;
-            return this._next(result.config);
+            return this._next({
+                policy: { middlewares: result.config.policy.middlewares }
+            });
         }
         return this._next({
             policy: { middlewares: input }
@@ -995,8 +1003,10 @@ class VigorRetry extends VigorStatus {
             }
             throw new VigorRetryError("RETRY_EXHAUSTED", {
                 method: "request",
+                cause: ctx.error,
                 data: {
-                    maxAttempts: ctx.policy.settings.maxAttempts
+                    maxAttempts: ctx.policy.settings.maxAttempts,
+                    error: ctx.error
                 }
             });
         }
@@ -1027,8 +1037,10 @@ class VigorRetry extends VigorStatus {
                 if (restartAttempt + 1 > ctx.policy.settings.maxRestarts)
                     throw new VigorRetryError("RESTART_EXHAUSTED", {
                         method: "request",
+                        cause: ctx.error,
                         data: {
-                            maxAttempts: ctx.policy.settings.maxRestarts
+                            maxAttempts: ctx.policy.settings.maxRestarts,
+                            error: ctx.error
                         }
                     });
                 return await this.requestRuntime(restartAttempt + 1);
@@ -1283,7 +1295,9 @@ class VigorParse extends VigorStatus {
             const result = typeof input === 'function'
                 ? input(new VigorParsePolicySettings())
                 : input;
-            return this._next(result.config);
+            return this._next({
+                policy: { settings: result.config.policy.settings }
+            });
         }
         return this._next({ policy: { settings: input } });
     }
@@ -1293,7 +1307,9 @@ class VigorParse extends VigorStatus {
             const result = typeof input === 'function'
                 ? input(new VigorParsePolicyMiddlewares())
                 : input;
-            return this._next(result.config);
+            return this._next({
+                policy: { middlewares: result.config.policy.middlewares }
+            });
         }
         return this._next({ policy: { middlewares: input } });
     }
@@ -1303,7 +1319,9 @@ class VigorParse extends VigorStatus {
             const result = typeof input === 'function'
                 ? input(new VigorParsePolicyStrategies())
                 : input;
-            return this._next(result.config);
+            return this._next({
+                policy: { strategies: result.config.policy.strategies }
+            });
         }
         return this._next({ policy: { strategies: input } });
     }
@@ -1412,8 +1430,10 @@ class VigorParse extends VigorStatus {
                 if (restartAttempt + 1 > ctx.policy.settings.maxRestarts)
                     throw new VigorParseError("RESTART_EXHAUSTED", {
                         method: "request",
+                        cause: ctx.error,
                         data: {
-                            maxAttempts: ctx.policy.settings.maxRestarts
+                            maxAttempts: ctx.policy.settings.maxRestarts,
+                            error: ctx.error
                         }
                     });
                 return await this.requestRuntime(restartAttempt + 1);
@@ -1572,7 +1592,7 @@ class VigorFetch extends VigorStatus {
             const result = typeof input === 'function'
                 ? input(new VigorFetchPolicySettings())
                 : input;
-            return this._next(result.config);
+            return this._next({ policy: { settings: result.config.policy.settings } });
         }
         return this._next({ policy: { settings: input } });
     }
@@ -1582,7 +1602,7 @@ class VigorFetch extends VigorStatus {
             const result = typeof input === 'function'
                 ? input(new VigorFetchPolicyMiddlewares())
                 : input;
-            return this._next(result.config);
+            return this._next({ policy: { middlewares: result.config.policy.middlewares } });
         }
         return this._next({ policy: { middlewares: input } });
     }
@@ -1712,7 +1732,7 @@ class VigorFetch extends VigorStatus {
                 });
             ctx.href = this._buildUrl(ctx.policy.origin, ctx.policy.path, ctx.policy.query, ctx.policy.hash);
             const hasBody = !isVigorEmpty(ctx.policy.body) && ctx.policy.body !== undefined;
-            const method = ctx.policy.method || (hasBody ? "POST" : "GET");
+            const method = isVigorEmpty(ctx.policy.method) ? (hasBody ? "POST" : "GET") : ctx.policy.method;
             let options = {
                 ...ctx.policy.extra,
                 method: method,
@@ -1849,8 +1869,10 @@ class VigorFetch extends VigorStatus {
                 if (restartAttempt + 1 > ctx.policy.settings.maxRestarts)
                     throw new VigorFetchError("RESTART_EXHAUSTED", {
                         method: "request",
+                        cause: ctx.error,
                         data: {
-                            maxAttempts: ctx.policy.settings.maxRestarts
+                            maxAttempts: ctx.policy.settings.maxRestarts,
+                            error: ctx.error
                         }
                     });
                 return await this.requestRuntime(restartAttempt + 1);
@@ -1885,7 +1907,33 @@ const vigor = {
     retry: (task) => task ? new VigorRetry().target(task) : new VigorRetry(),
     parse: (response) => response ? new VigorParse().target(response) : new VigorParse(),
     fetch: (origin) => origin ? new VigorFetch().origin(origin) : new VigorFetch(),
-    all: (...tasks) => tasks.length > 0 ? new VigorAll().target(...tasks) : new VigorAll()
+    all: (...tasks) => tasks.length > 0 ? new VigorAll().target(...tasks) : new VigorAll(),
+    builders: {
+        fetch: {
+            settings: () => new VigorFetchPolicySettings(),
+            middlewares: () => new VigorFetchPolicyMiddlewares(),
+        },
+        retry: {
+            settings: () => new VigorRetryPolicySettings(),
+            middlewares: () => new VigorRetryPolicyMiddlewares(),
+            algorithms: () => new VigorRetryPolicyAlgorithms(),
+            algorithm: {
+                constant: () => new VigorRetryPolicyAlgorithmsConstant(),
+                linear: () => new VigorRetryPolicyAlgorithmsLinear(),
+                backoff: () => new VigorRetryPolicyAlgorithmsBackoff(),
+                custom: () => new VigorRetryPolicyAlgorithmsCustom(),
+            },
+        },
+        parse: {
+            settings: () => new VigorParsePolicySettings(),
+            middlewares: () => new VigorParsePolicyMiddlewares(),
+            strategies: () => new VigorParsePolicyStrategies(),
+        },
+        all: {
+            settings: () => new VigorAllPolicySettings(),
+            middlewares: () => new VigorAllPolicyMiddlewares(),
+        },
+    }
 };
 
 exports.VigorAll = VigorAll;

@@ -6,7 +6,7 @@ export const VigorParseErrorMessageFuncs = {
     INVALID_CONTENT_TYPE: ({ received }: { received: unknown }) => `Invalid Content-Type header: ${String(received)}`,
     PARSER_NOT_FOUND: ({ received, expected }: { received: unknown, expected: Array<string> }) => `Parser not found for Content-Type "${String(received)}" (known: ${expected.join(", ")})`,
     PARSER_ALL_FAILED: ({ tried }: { tried: Array<string> }) => `All parsers failed, tried: ${tried.join(", ")}`,
-    RESTART_EXHAUSTED: ({ maxAttempts }: { maxAttempts: number }) => `Restart exhausted, (max ${maxAttempts})`,
+    RESTART_EXHAUSTED: ({ maxAttempts }: { maxAttempts: number, error: unknown }) => `Restart exhausted, (max ${maxAttempts})`,
 } as const
 
 export type VigorParseErrorCodes = keyof typeof VigorParseErrorMessageFuncs
