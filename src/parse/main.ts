@@ -63,7 +63,9 @@ export class VigorParse<
             const result = typeof input === 'function'
                 ? input(new VigorParsePolicySettings<T>())
                 : input
-            return this._next(result.config as VigorDeepPartial<VigorParseSchema<any>>)
+            return this._next({
+                policy: { settings: result.config.policy.settings }
+            } as const)
         }
         return this._next({ policy: { settings: input } } as const)
     }
@@ -81,7 +83,9 @@ export class VigorParse<
             const result = typeof input === 'function'
                 ? input(new VigorParsePolicyMiddlewares<T>())
                 : input
-            return this._next(result.config as VigorDeepPartial<VigorParseSchema<any>>)
+            return this._next({
+                policy: { middlewares: result.config.policy.middlewares }
+            } as const)
         }
         return this._next({ policy: { middlewares: input } } as const)
     }
@@ -99,7 +103,9 @@ export class VigorParse<
             const result = typeof input === 'function'
                 ? input(new VigorParsePolicyStrategies<T>())
                 : input
-            return this._next(result.config as VigorDeepPartial<VigorParseSchema<any>>)
+            return this._next({
+                policy: { strategies: result.config.policy.strategies }
+            } as const)
         }
         return this._next({ policy: { strategies: input } } as const)
     }

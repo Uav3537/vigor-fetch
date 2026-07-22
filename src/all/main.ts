@@ -62,7 +62,9 @@ export class VigorAll<
             const result = typeof input === 'function'
                 ? input(new VigorAllPolicySettings<T>())
                 : input
-            return this._next(result.config as VigorDeepPartial<VigorAllSchema<any>>)
+            return this._next({
+                policy: { settings: result.config.policy.settings }
+            } as const)
         }
         return this._next({ policy: { settings: input } } as const)
     }
@@ -80,7 +82,9 @@ export class VigorAll<
             const result = typeof input === 'function'
                 ? input(new VigorAllPolicyMiddlewares<T>())
                 : input
-            return this._next(result.config as VigorDeepPartial<VigorAllSchema<any>>)
+            return this._next({
+                policy: { middlewares: result.config.policy.middlewares }
+            } as const)
         }
         return this._next({ policy: { middlewares: input } } as const)
     }

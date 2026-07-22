@@ -115,7 +115,9 @@ export class VigorFetch<
             const result = typeof input === 'function'
                 ? input(new VigorFetchPolicySettings<T>())
                 : input
-            return this._next(result.config as VigorDeepPartial<VigorFetchSchema<any>>)
+            return this._next(
+                { policy: { settings: result.config.policy.settings } } as const
+            )
         }
         return this._next({ policy: { settings: input } } as const)
     }
@@ -133,7 +135,9 @@ export class VigorFetch<
             const result = typeof input === 'function'
                 ? input(new VigorFetchPolicyMiddlewares<T>())
                 : input
-            return this._next(result.config as VigorDeepPartial<VigorFetchSchema<any>>)
+            return this._next(
+                { policy: { middlewares: result.config.policy.middlewares } } as const
+            )
         }
         return this._next({ policy: { middlewares: input } } as const)
     }

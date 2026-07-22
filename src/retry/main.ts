@@ -71,7 +71,9 @@ export class VigorRetry<
             const result = typeof input === 'function'
                 ? input(new VigorRetryPolicySettings<T>())
                 : input
-            return this._next(result.config as VigorDeepPartial<VigorRetrySchema<any>>)
+            return this._next({
+                policy: { settings: result.config.policy.settings }
+            } as const)
         }
 
         return this._next({
@@ -92,7 +94,9 @@ export class VigorRetry<
             const result = typeof input === 'function'
                 ? input(new VigorRetryPolicyMiddlewares<T>())
                 : input
-            return this._next(result.config as VigorDeepPartial<VigorRetrySchema<any>>)
+            return this._next({
+                policy: { middlewares: result.config.policy.middlewares }
+            } as const)
         }
 
         return this._next({
