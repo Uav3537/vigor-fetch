@@ -1,4 +1,4 @@
-import { VigorAll } from "@all/main";
+import { VigorAll, VigorAllTask } from "@all/main";
 import { VigorAllPolicySettings } from "@all/settings";
 import { VigorAllPolicyMiddlewares } from "@all/middlewares";
 import { VigorFetch } from "@fetch/main";
@@ -19,12 +19,63 @@ import {
     VigorRetryPolicyAlgorithmsCustom,
 } from "@retry/algorithms";
 
+/**
+ * Small named helpers that actually *call* the target/origin method with the
+ * generic argument `F`. These exist purely so `ReturnType<typeof xWithY<F>>`
+ * can forward `F` into the real merged config type — referencing the method
+ * type directly (e.g. `VigorRetry["target"]`) would leave `F` unapplied and
+ * collapse back to the method's own parameter type.
+ */
+function retryWithTarget<const F extends Parameters<VigorRetry["target"]>[0]>(task: F) {
+    return new VigorRetry().target(task)
+}
+function parseWithTarget<const F extends Parameters<VigorParse["target"]>[0]>(response: F) {
+    return new VigorParse().target(response)
+}
+function fetchWithOrigin<const F extends Parameters<VigorFetch["origin"]>[0]>(origin: F) {
+    return new VigorFetch().origin(origin)
+}
+function allWithTargets<const F extends VigorAllTask[]>(tasks: F) {
+    return new VigorAll().target(...tasks)
+}
+
+/**
+ * Overload types for each entry helper. Object literals can't declare
+ * overloaded method shorthand directly (`foo(): A; foo(x: B): C { ... }` is a
+ * syntax error inside `{ ... }`), so each helper is typed here and the
+ * implementation is cast to it below.
+ */
+type RetryFn = {
+    (): VigorRetry
+    <const F extends Parameters<VigorRetry["target"]>[0]>(task: F): ReturnType<typeof retryWithTarget<F>>
+}
+type ParseFn = {
+    (): VigorParse
+    <const F extends Parameters<VigorParse["target"]>[0]>(response: F): ReturnType<typeof parseWithTarget<F>>
+}
+type FetchFn = {
+    (): VigorFetch
+    <const F extends Parameters<VigorFetch["origin"]>[0]>(origin: F): ReturnType<typeof fetchWithOrigin<F>>
+}
+type AllFn = {
+    (): VigorAll
+    <const F extends VigorAllTask[]>(...tasks: F): ReturnType<typeof allWithTargets<F>>
+}
+
 /** Everything `vigor` exposes except `use` — kept separate so `VigorInstance` (below) can self-reference without a circular-inference error. */
 const vigorBase = {
-    retry: (...task: [task?: Parameters<VigorRetry["target"]>[0]]) => task[0] !== undefined ? new VigorRetry().target(task[0]) : new VigorRetry(),
-    parse: (...response: [response?: Parameters<VigorParse["target"]>[0]]) => response[0] !== undefined ? new VigorParse().target(response[0]) : new VigorParse(),
-    fetch: (...origin: [origin?: Parameters<VigorFetch["origin"]>[0]]) => origin[0] !== undefined ? new VigorFetch().origin(origin[0]) : new VigorFetch(),
-    all: (...tasks: Parameters<VigorAll["target"]>) => tasks.length > 0 ? new VigorAll().target(...tasks) : new VigorAll(),
+    retry: ((task?: Parameters<VigorRetry["target"]>[0]) =>
+        task !== undefined ? retryWithTarget(task) : new VigorRetry()) as RetryFn,
+
+    parse: ((response?: Parameters<VigorParse["target"]>[0]) =>
+        response !== undefined ? parseWithTarget(response) : new VigorParse()) as ParseFn,
+
+    fetch: ((origin?: Parameters<VigorFetch["origin"]>[0]) =>
+        origin !== undefined ? fetchWithOrigin(origin) : new VigorFetch()) as FetchFn,
+
+    all: ((...tasks: VigorAllTask[]) =>
+        tasks.length > 0 ? allWithTargets(tasks) : new VigorAll()) as AllFn,
+
     builders: {
         fetch: {
             settings:    () => new VigorFetchPolicySettings(),

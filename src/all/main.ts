@@ -1,10 +1,10 @@
-import { createBrand, VigorBrand } from "@core/symbol"
-import { VigorAllContextBase, VigorAllContextSchema, VigorAllEachContextBase, VigorAllEachContextSchema } from "./context"
+import { createBrand, VigorBrand, VigorCastPlaceholder, VigorEmpty } from "@core/symbol"
+import { VigorAllEachContextBase, VigorAllEachContextSchema } from "./context"
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorAllTypeLambda } from "./TL"
 import { VigorAllPolicySettings, VigorAllPolicySettingsSchema } from "./settings"
-import { VigorDeepPartial } from "@core/types"
+import { VigorCastResult, VigorDeepPartial } from "@core/types"
 import { VigorAllPolicyMiddlewares, VigorAllPolicyMiddlewaresSchema } from "./middlewares"
 import { VigorAllError } from "./error"
 import { VigorAllPolicyBase, VigorAllPolicySchema, VigorAllTask } from "./policy"
@@ -17,14 +17,15 @@ export type VigorAllSchema<
     __brand: VigorBrand<"All", "Schema">
 
     policy: VigorAllPolicySchema<T>
-    context: VigorAllContextSchema<T>
+    /** Type-level override for the resolved result type, set via `.cast<T>()`. */
+    cast: unknown
 }
 
 export const VigorAllBase = {
     __brand: createBrand("All", "Schema"),
 
     policy: VigorAllPolicyBase,
-    context: VigorAllContextBase
+    cast: VigorEmpty
 } as const satisfies VigorAllSchema<any>
 
 /**
@@ -110,18 +111,30 @@ export class VigorAll<
         }
     }
 
+    /**
+     * Overrides the resolved result type with `T`, taking priority over the
+     * naturally-inferred `unknown[]`. Can be called before or after
+     * `target()` (or any other configuration method); whichever `.cast<T>()`
+     * call happens last wins.
+     */
+    public cast<const C>() {
+        return this._next(
+            { cast: VigorCastPlaceholder } as unknown as { cast: C },
+            { cast: "replace" }
+        )
+    }
     /** Runs all tasks and returns the results array directly, throwing on final failure. */
-    public async request<R extends unknown[] = unknown[]>() {
+    public async request<R = VigorCastResult<T["cast"], unknown[]>>() {
         const res = await this.requestVerbose<R>()
         if(res.success) return res.data
         throw res.error
     }
     /** Runs all tasks and returns a result/error envelope instead of throwing. */
-    public async requestVerbose<R extends unknown[] = unknown[]>() {
+    public async requestVerbose<R = VigorCastResult<T["cast"], unknown[]>>() {
         return await this.requestRuntime<R>()
     }
     /** Internal execution loop implementing the bounded-concurrency worker pool. */
-    private async requestRuntime<R extends unknown[] = unknown[]>(
+    private async requestRuntime<R = unknown[]>(
         restartAttempt: number = 1
     ): Promise<
         {success: true, data: R, error: null} |

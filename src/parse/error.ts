@@ -1,5 +1,6 @@
 import { VigorError, VigorErrorOptions } from "@core/error";
 import { VigorParseSchema } from "./main";
+import type { VigorParseContextSchema } from "./context";
 
 export const VigorParseErrorMessageFuncs = {
     VALUE_REQUIRED: ({ key }: { key: string }) => `Value Required (missing ${key})`,
@@ -23,13 +24,13 @@ export class VigorParseError<
 > extends VigorError<
     C,
     VigorParseErrorDatas<C>,
-    T["context"]
+    VigorParseContextSchema<T>
 > {
     /**
      * @param code - One of the parse module's error codes.
      * @param options - Error metadata, including the `data` payload for `code`.
      */
-    constructor(code: C, options: VigorErrorOptions<VigorParseErrorDatas<C>, T["context"]>) {
+    constructor(code: C, options: VigorErrorOptions<VigorParseErrorDatas<C>, VigorParseContextSchema<T>>) {
         const messageFn = VigorParseErrorMessageFuncs[code] as (arg: VigorParseErrorDatas<C>) => string
         super(code, messageFn(options.data), options)
     }

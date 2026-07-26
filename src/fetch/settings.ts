@@ -3,6 +3,7 @@ import { VigorFetchBase, VigorFetchSchema } from "./main"
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorFetchPolicySettingsTypeLambda } from "./TL"
+import type { VigorFetchContextSchema } from "./context"
 
 export type VigorFetchPolicySettingsSchema<
     T extends VigorFetchSchema<T>
@@ -12,7 +13,7 @@ export type VigorFetchPolicySettingsSchema<
     retryHeaders: string[]
     unretryStatus: number[]
     maxRestarts: number
-    default: ((ctx: T["context"]) => any|Promise<any>) | VigorEmptyType
+    default: ((ctx: VigorFetchContextSchema<T>) => any|Promise<any>) | VigorEmptyType
 }
 
 export const VigorFetchPolicySettingsBase = {

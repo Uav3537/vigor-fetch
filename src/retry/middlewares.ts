@@ -3,7 +3,12 @@ import { VigorRetryBase, VigorRetrySchema } from "./main"
 import { VigorStatus } from "@core/status"
 import { VigorRetryPolicyMiddlewaresTypeLambda } from "./TL"
 import { VigorApply } from "@core/HKT"
-import { VigorDeepMerge, VigorReturnType } from "@core/types"
+import { VigorCastResult, VigorDeepMerge, VigorReturnType } from "@core/types"
+import type {
+    VigorRetryContextSchema,
+    VigorRetryBeforeContextSchema,
+    VigorRetryAfterContextSchema
+} from "./context"
 
 export type VigorRetryPolicyMiddlewaresSchema<
     T extends VigorRetrySchema<T>
@@ -36,43 +41,43 @@ export type VigorRetryPolicyMiddlewaresFluent<
 
     before: {
         _mode: "fluent",
-        func: (ctx: T["context"]) => void
+        func: (ctx: VigorRetryBeforeContextSchema<T>) => void
     }
     after: {
         _mode: "fluent",
-        func: (ctx: T["context"]) => void
+        func: (ctx: VigorRetryAfterContextSchema<T>) => void
     }
     onResult: {
         _mode: "fluent",
-        func: (res: T["context"]["result"]) => VigorRetrySchema<any>["context"]["result"]
+        func: (res: VigorRetryAfterContextSchema<T>["result"]) => VigorRetryContextSchema<any>["result"]
     }
     retryIf: {
         _mode: "fluent",
-        func: (err: T["context"]["error"]) => VigorRetrySchema<any>["context"]["flags"]["doRetry"]
+        func: (err: VigorRetryContextSchema<T>["error"]) => VigorRetryContextSchema<any>["flags"]["doRetry"]
     }
     onRetry: {
         _mode: "fluent",
-        func: (err: T["context"]["error"]) => void
+        func: (err: VigorRetryContextSchema<T>["error"]) => void
     }
     onError: {
         _mode: "fluent",
-        func: (err: T["context"]["error"]) => void
+        func: (err: VigorRetryContextSchema<T>["error"]) => void
     }
 }
 
 export type VigorRetryPolicyMiddlewaresApi<
     T extends VigorRetrySchema<T>
 > = {
-    setResult: (res: VigorRetrySchema<any>["context"]["result"]) => void
-    throwError: (err: VigorRetrySchema<any>["context"]["error"]) => void
+    setResult: (res: VigorRetryContextSchema<any>["result"]) => void
+    throwError: (err: VigorRetryContextSchema<any>["error"]) => void
 
-    abort: (err: VigorRetrySchema<any>["context"]["error"]) => void
-    breakRetry: (err: VigorRetrySchema<any>["context"]["error"]) => void
+    abort: (err: VigorRetryContextSchema<any>["error"]) => void
+    breakRetry: (err: VigorRetryContextSchema<any>["error"]) => void
 
     proceedRetry: () => void
     cancelRetry: () => void
 
-    setDelay: (num: VigorRetrySchema<any>["context"]["system"]["delay"]) => void
+    setDelay: (num: VigorRetryContextSchema<any>["system"]["delay"]) => void
 
     proceedRestart: () => void
     cancelRestart: () => void
@@ -85,27 +90,27 @@ export type VigorRetryPolicyMiddlewaresIntercept<
 
     before: {
         _mode: "intercept",
-        func: (ctx: T["context"], api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "abort"|"throwError"|"breakRetry">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>
+        func: (ctx: VigorRetryBeforeContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "abort"|"throwError"|"breakRetry">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
     }
     after: {
         _mode: "intercept",
-        func: (ctx: T["context"], api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "throwError">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>
+        func: (ctx: VigorRetryAfterContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "throwError">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
     }
     onResult: {
         _mode: "intercept",
-        func: (ctx: T["context"], api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>
+        func: (ctx: VigorRetryAfterContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
     }
     retryIf: {
         _mode: "intercept",
-        func: (ctx: T["context"], api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "proceedRetry"|"cancelRetry">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>
+        func: (ctx: VigorRetryContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "proceedRetry"|"cancelRetry">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
     }
     onRetry: {
         _mode: "intercept",
-        func: (ctx: T["context"], api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "throwError"|"setDelay">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>
+        func: (ctx: VigorRetryContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "throwError"|"setDelay">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
     }
     onError: {
         _mode: "intercept",
-        func: (ctx: T["context"], api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "setResult"|"throwError"|"proceedRestart"|"cancelRestart">) => VigorRetrySchema<any>["context"] | Promise<VigorRetrySchema<any>["context"]>
+        func: (ctx: VigorRetryContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "setResult"|"throwError"|"proceedRestart"|"cancelRestart">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
     }
 }
 
@@ -128,13 +133,13 @@ export class VigorRetryPolicyMiddlewares<
     }
 
     /** Registers a middleware that runs before the retried target is invoked. */
-    public before<const N extends VigorRetryPolicyMiddlewaresFluent<any>["before"]["func"]>(
+    public before<const N extends VigorRetryPolicyMiddlewaresFluent<T>["before"]["func"]>(
         type: "fluent",
         func: N
     ): VigorApply<VigorRetryPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: { middlewares: { before: [{ _mode: "fluent", func: N }] } }
     }>>
-    public before<const N extends VigorRetryPolicyMiddlewaresIntercept<any>["before"]["func"]>(
+    public before<const N extends VigorRetryPolicyMiddlewaresIntercept<T>["before"]["func"]>(
         type: "intercept",
         func: N
     ): VigorApply<VigorRetryPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
@@ -148,13 +153,13 @@ export class VigorRetryPolicyMiddlewares<
 
 
     /** Registers a middleware that runs after the retried target settles. */
-    public after<const N extends VigorRetryPolicyMiddlewaresFluent<any>["after"]["func"]>(
+    public after<const N extends VigorRetryPolicyMiddlewaresFluent<T>["after"]["func"]>(
         type: "fluent",
         func: N
     ): VigorApply<VigorRetryPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: { middlewares: { after: [{ _mode: "fluent", func: N }] } }
     }>>
-    public after<const N extends VigorRetryPolicyMiddlewaresIntercept<any>["after"]["func"]>(
+    public after<const N extends VigorRetryPolicyMiddlewaresIntercept<T>["after"]["func"]>(
         type: "intercept",
         func: N
     ): VigorApply<VigorRetryPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
@@ -168,13 +173,13 @@ export class VigorRetryPolicyMiddlewares<
 
 
     /** Registers a middleware to transform or validate the retry's result. */
-    public onResult<const N extends VigorRetryPolicyMiddlewaresFluent<any>["onResult"]["func"]>(
+    public onResult<const N extends VigorRetryPolicyMiddlewaresFluent<T>["onResult"]["func"]>(
         type: "fluent",
         func: N
     ): VigorApply<VigorRetryPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: { middlewares: { onResult: [{ _mode: "fluent", func: N }] } }
     }>>
-    public onResult<const N extends VigorRetryPolicyMiddlewaresIntercept<any>["onResult"]["func"]>(
+    public onResult<const N extends VigorRetryPolicyMiddlewaresIntercept<T>["onResult"]["func"]>(
         type: "intercept",
         func: N
     ): VigorApply<VigorRetryPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
@@ -188,13 +193,13 @@ export class VigorRetryPolicyMiddlewares<
 
 
     /** Registers a middleware that decides whether a failed attempt should be retried. */
-    public retryIf<const N extends VigorRetryPolicyMiddlewaresFluent<any>["retryIf"]["func"]>(
+    public retryIf<const N extends VigorRetryPolicyMiddlewaresFluent<T>["retryIf"]["func"]>(
         type: "fluent",
         func: N
     ): VigorApply<VigorRetryPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: { middlewares: { retryIf: [{ _mode: "fluent", func: N }] } }
     }>>
-    public retryIf<const N extends VigorRetryPolicyMiddlewaresIntercept<any>["retryIf"]["func"]>(
+    public retryIf<const N extends VigorRetryPolicyMiddlewaresIntercept<T>["retryIf"]["func"]>(
         type: "intercept",
         func: N
     ): VigorApply<VigorRetryPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
@@ -208,13 +213,13 @@ export class VigorRetryPolicyMiddlewares<
 
 
     /** Registers a middleware invoked right before a retry attempt is scheduled. */
-    public onRetry<const N extends VigorRetryPolicyMiddlewaresFluent<any>["onRetry"]["func"]>(
+    public onRetry<const N extends VigorRetryPolicyMiddlewaresFluent<T>["onRetry"]["func"]>(
         type: "fluent",
         func: N
     ): VigorApply<VigorRetryPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: { middlewares: { onRetry: [{ _mode: "fluent", func: N }] } }
     }>>
-    public onRetry<const N extends VigorRetryPolicyMiddlewaresIntercept<any>["onRetry"]["func"]>(
+    public onRetry<const N extends VigorRetryPolicyMiddlewaresIntercept<T>["onRetry"]["func"]>(
         type: "intercept",
         func: N
     ): VigorApply<VigorRetryPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
@@ -228,13 +233,13 @@ export class VigorRetryPolicyMiddlewares<
 
 
     /** Registers a middleware invoked when retries/restarts are exhausted. */
-    public onError<const N extends VigorRetryPolicyMiddlewaresFluent<any>["onError"]["func"]>(
+    public onError<const N extends VigorRetryPolicyMiddlewaresFluent<T>["onError"]["func"]>(
         type: "fluent",
         func: N
     ): VigorApply<VigorRetryPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
         policy: { middlewares: { onError: [{ _mode: "fluent", func: N }] } }
     }>>
-    public onError<const N extends VigorRetryPolicyMiddlewaresIntercept<any>["onError"]["func"]>(
+    public onError<const N extends VigorRetryPolicyMiddlewaresIntercept<T>["onError"]["func"]>(
         type: "intercept",
         func: N
     ): VigorApply<VigorRetryPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
@@ -249,8 +254,8 @@ export class VigorRetryPolicyMiddlewares<
 
 export type VigorRetryPipeInitialContext<
     T extends VigorRetrySchema<T>,
-    R = VigorReturnType<T["policy"]["target"]>
-> = VigorDeepMerge<Omit<T["context"], "result">, { result: R }>
+    R = VigorCastResult<T["cast"], VigorReturnType<T["policy"]["target"]>>
+> = VigorDeepMerge<Omit<VigorRetryContextSchema<T, unknown>, "result">, { result: R }>
 
 export type VigorRetryPipeStepVoid<
     Ctx,

@@ -1,3 +1,5 @@
+import { VigorExcludeEmpty } from "./symbol"
+
 export type VigorPrimitive =
     | string
     | number
@@ -83,6 +85,20 @@ export type VigorLastOf<T extends readonly any[]> = T extends [...infer _, infer
 export type VigorReturnType<T> = T extends (...args: Array<any>) => any
     ? Awaited<ReturnType<T>>
     : never
+
+/**
+ * Resolves the effective result type for a builder that supports `.cast<T>()`.
+ *
+ * If `Cast` is anything other than the `VigorEmpty` sentinel (i.e. `.cast<T>()`
+ * was called at least once), it always wins — regardless of how many times
+ * `target()`/`strategies()`/etc. were called before or after it. Otherwise the
+ * naturally-inferred `Natural` type (e.g. derived from the target function's
+ * return type through the middleware pipeline) is used.
+ */
+export type VigorCastResult<Cast, Natural> =
+    [VigorExcludeEmpty<Cast>] extends [never]
+        ? Natural
+        : Cast
 
 export type VigorMergeMode = "merge" | "replace" | "concat"
 

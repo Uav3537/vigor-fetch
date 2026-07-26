@@ -1,10 +1,10 @@
-import { createBrand, isVigorDefault, isVigorEmpty, VigorBrand, VigorExcludeEmpty } from "@core/symbol"
+import { createBrand, isVigorDefault, isVigorEmpty, VigorBrand, VigorCastPlaceholder, VigorEmpty, VigorExcludeEmpty } from "@core/symbol"
 import { VigorParseContextBase, VigorParseContextSchema } from "./context"
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorParseTypeLambda } from "./TL"
 import { VigorParsePolicySettings, VigorParsePolicySettingsSchema } from "./settings"
-import { VigorDeepPartial } from "@core/types"
+import { VigorCastResult, VigorDeepPartial } from "@core/types"
 import { VigorParsePolicyMiddlewares, VigorParsePolicyMiddlewaresApi, VigorParsePolicyMiddlewaresSchema } from "./middlewares"
 import { VigorParsePolicyStrategies, VigorParsePolicyStrategiesSchema, VigorParseContentTypeStrategy } from "./strategies"
 import { VigorParseError } from "./error"
@@ -18,14 +18,15 @@ export type VigorParseSchema<
     __brand: VigorBrand<"Parse", "Schema">
 
     policy: VigorParsePolicySchema<T>
-    context: VigorParseContextSchema<T>
+    /** Type-level override for the resolved result type, set via `.cast<T>()`. */
+    cast: unknown
 }
 
 export const VigorParseBase = {
     __brand: createBrand("Parse", "Schema"),
 
     policy: VigorParsePolicyBase,
-    context: VigorParseContextBase
+    cast: VigorEmpty
 } as const satisfies VigorParseSchema<any>
 
 /**
@@ -110,33 +111,45 @@ export class VigorParse<
         return this._next({ policy: { strategies: input } } as const)
     }
 
+    /**
+     * Overrides the resolved result type with `T`, taking priority over the
+     * default `unknown` result. Can be called before or after `strategies()`
+     * (or any other configuration method); whichever `.cast<T>()` call
+     * happens last wins.
+     */
+    public cast<const C>() {
+        return this._next(
+            { cast: VigorCastPlaceholder } as unknown as { cast: C },
+            { cast: "replace" }
+        )
+    }
     /** Runs parsing and returns the result directly, throwing on final failure. */
-    public async request<R = T["context"]["result"]>() {
+    public async request<R = VigorCastResult<T["cast"], VigorParseContextSchema<T>["result"]>>() {
         const res = await this.requestVerbose<R>()
         if(res.success) return res.data
         throw res.error
     }
     /** Runs parsing and returns a result/error envelope instead of throwing. */
-    public async requestVerbose<R = T["context"]["result"]>() {
+    public async requestVerbose<R = VigorCastResult<T["cast"], VigorParseContextSchema<T>["result"]>>() {
         return await this.requestRuntime<R>()
     }
     /** Internal execution loop implementing the strategy fallback and restart handling. */
-    private async requestRuntime<R = T["context"]["result"]>(
+    private async requestRuntime<R = VigorParseContextSchema<T>["result"]>(
         restartAttempt: number = 1
     ): Promise<
         {success: true, data: R, error: null} |
         {success: false, data: null, error: unknown}
     > {
         const config = this._merge(this.config, {}) as VigorParseSchema<T>
-        let ctx = {
-            ...config.context,
+        let ctx: VigorParseContextSchema<T> = {
+            ...VigorParseContextBase,
             policy: config.policy
-        } as VigorParseSchema<T>["context"]
+        } as VigorParseContextSchema<T>
 
         if (isVigorDefault(ctx.policy.target)) throw new VigorParseError("VALUE_REQUIRED", {
             method: "request",
             data: { key: "target" },
-            context: ctx as VigorParseSchema<any>["context"]
+            context: ctx as VigorParseContextSchema<any>
         })
 
         ctx.response = ctx.policy.target
@@ -146,9 +159,9 @@ export class VigorParse<
         try {
             for (const middleware of ctx.policy.middlewares.before) {
                 if (middleware._mode === "fluent") {
-                    await middleware.func(ctx)
+                    await middleware.func(ctx as any)
                 } else {
-                    ctx = await middleware.func(ctx, { throwError })
+                    ctx = await middleware.func(ctx as any, { throwError }) as typeof ctx
                 }
             }
 
@@ -173,24 +186,24 @@ export class VigorParse<
                 if (!parsed) throw new VigorParseError("PARSER_ALL_FAILED", {
                     method: "request",
                     data: { tried: funcs.map((_, i) => `strategy#${i}`) },
-                    context: ctx as VigorParseSchema<any>["context"]
+                    context: ctx as VigorParseContextSchema<any>
                 })
             }
 
             const setResult: VigorParsePolicyMiddlewaresApi<T>["setResult"] = (res) => { ctx.result = res }
             for (const middleware of ctx.policy.middlewares.after) {
                 if (middleware._mode === "fluent") {
-                    await middleware.func(ctx)
+                    await middleware.func(ctx as any)
                 } else {
-                    ctx = await middleware.func(ctx, { setResult, throwError })
+                    ctx = await middleware.func(ctx as any, { setResult, throwError }) as typeof ctx
                 }
             }
 
             for (const middleware of ctx.policy.middlewares.onResult) {
                 if (middleware._mode === "fluent") {
-                    ctx.result = await middleware.func(ctx.result)
+                    ctx.result = await middleware.func(ctx.result as any)
                 } else {
-                    ctx = await middleware.func(ctx, { setResult, throwError })
+                    ctx = await middleware.func(ctx as any, { setResult, throwError }) as typeof ctx
                 }
             }
 
@@ -215,7 +228,7 @@ export class VigorParse<
                 if (middleware._mode === "fluent") {
                     await middleware.func(ctx.error)
                 } else {
-                    ctx = await middleware.func(ctx, { setResult, throwError, proceedRestart, cancelRestart })
+                    ctx = await middleware.func(ctx as any, { setResult, throwError, proceedRestart, cancelRestart }) as typeof ctx
                 }
             }
 

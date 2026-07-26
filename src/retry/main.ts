@@ -1,10 +1,10 @@
-import { createBrand, isVigorEmpty, VigorBrand, VigorExcludeEmpty } from "@core/symbol"
+import { createBrand, isVigorEmpty, VigorBrand, VigorCastPlaceholder, VigorEmpty, VigorExcludeEmpty } from "@core/symbol"
 import { VigorRetryContextBase, VigorRetryContextSchema } from "./context"
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorRetryTypeLambda } from "./TL"
 import { VigorRetryPolicySettings, VigorRetryPolicySettingsSchema } from "./settings"
-import { VigorDeepPartial } from "@core/types"
+import { VigorCastResult, VigorDeepPartial } from "@core/types"
 import { VigorRetryPolicyMiddlewares, VigorRetryPolicyMiddlewaresApi, VigorRetryPolicyMiddlewaresSchema } from "./middlewares"
 import { VigorRetryPolicyAlgorithms, VigorRetryPolicyAlgorithmsConstant, VigorRetryPolicyAlgorithmsSchema } from "./algorithms"
 import { VigorRetryError } from "./error"
@@ -18,14 +18,15 @@ export type VigorRetrySchema<
     __brand: VigorBrand<"Retry", "Schema">
 
     policy: VigorRetryPolicySchema<T>
-    context: VigorRetryContextSchema<T>
+    /** Type-level override for the resolved result type, set via `.cast<T>()`. */
+    cast: unknown
 }
 
 export const VigorRetryBase = {
     __brand: createBrand("Retry", "Schema"),
 
     policy: VigorRetryPolicyBase,
-    context: VigorRetryContextBase
+    cast: VigorEmpty
 } as const satisfies VigorRetrySchema<any>
 
 /**
@@ -124,34 +125,46 @@ export class VigorRetry<
             policy: { algorithms: input }
         } as const, { policy: { algorithms: "replace" } })
     }
+    /**
+     * Overrides the resolved result type with `T`, taking priority over the
+     * type naturally inferred from `target()`. Can be called before or after
+     * `target()` (or any other configuration method); whichever `.cast<T>()`
+     * call happens last wins.
+     */
+    public cast<const C>() {
+        return this._next(
+            { cast: VigorCastPlaceholder } as unknown as { cast: C },
+            { cast: "replace" }
+        )
+    }
     /** Runs the target and returns its result directly, throwing on final failure. */
-    public async request<R = T["context"]["result"]>() {
+    public async request<R = VigorCastResult<T["cast"], VigorRetryContextSchema<T>["result"]>>() {
         const res = await this.requestVerbose<R>()
         if(res.success) return res.data
         throw res.error
     }
     /** Runs the target and returns a result/error envelope instead of throwing. */
-    public async requestVerbose<R = T["context"]["result"]>() {
+    public async requestVerbose<R = VigorCastResult<T["cast"], VigorRetryContextSchema<T>["result"]>>() {
         return await this.requestRuntime<R>()
     }
     /** Internal execution loop implementing the attempt/retry/restart lifecycle. */
-    private async requestRuntime<R = T["context"]["result"]>(
+    private async requestRuntime<R = VigorRetryContextSchema<T>["result"]>(
         restartAttempt: number = 1
     ): Promise<
         {success: true, data: R, error: null} |
         {success: false, data: null, error: unknown}
     > {
         const config = this._merge(this.config, {}) as VigorRetrySchema<T>
-        let ctx = {
-            ...config.context,
+        let ctx: VigorRetryContextSchema<T> = {
+            ...VigorRetryContextBase,
             policy: config.policy
-        } as VigorRetrySchema<T>["context"]
+        } as VigorRetryContextSchema<T>
         if(isVigorEmpty(ctx.policy.target)) throw new VigorRetryError("VALUE_REQUIRED", {
             method: "request",
             data: {
                 key: "target"
             },
-            context: ctx as VigorRetrySchema<any>["context"]
+            context: ctx as VigorRetryContextSchema<any>
         })
 
         const target = ctx.policy.target
@@ -192,13 +205,13 @@ export class VigorRetry<
                     try {
                         for(const middleware of ctx.policy.middlewares.before) {
                             if(middleware._mode === "fluent") {
-                                await middleware.func(ctx)
+                                await middleware.func(ctx as any)
                             } else {
-                                ctx = await middleware.func(ctx, {
+                                ctx = await middleware.func(ctx as any, {
                                     abort: (reason) => userController.abort(reason),
                                     throwError,
                                     breakRetry
-                                })
+                                }) as typeof ctx
                             }
                         }
                         mergedSignals.throwIfAborted()
@@ -220,11 +233,11 @@ export class VigorRetry<
 
                         for(const middleware of ctx.policy.middlewares.after) {
                             if(middleware._mode === "fluent") {
-                                await middleware.func(ctx)
+                                await middleware.func(ctx as any)
                             } else {
-                                ctx = await middleware.func(ctx, {
+                                ctx = await middleware.func(ctx as any, {
                                     throwError
-                                })
+                                }) as typeof ctx
                             }
                         }
 
@@ -234,12 +247,12 @@ export class VigorRetry<
 
                         for(const middleware of ctx.policy.middlewares.onResult) {
                             if(middleware._mode === "fluent") {
-                                ctx.result = await middleware.func(ctx.result)
+                                ctx.result = await middleware.func(ctx.result as any)
                             } else {
-                                ctx = await middleware.func(ctx, {
+                                ctx = await middleware.func(ctx as any, {
                                     setResult,
                                     throwError
-                                })
+                                }) as typeof ctx
                             }
                         }
                         return {

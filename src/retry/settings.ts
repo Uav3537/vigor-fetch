@@ -3,13 +3,14 @@ import { VigorRetryBase, VigorRetrySchema } from "./main"
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorRetryPolicySettingsTypeLambda } from "./TL"
+import type { VigorRetryContextSchema } from "./context"
 
 export type VigorRetryPolicySettingsSchema<
     T extends VigorRetrySchema<T>
 > = {
     __brand: VigorBrand<"Retry", "Policy<Settings<Schema">
 
-    default: ((ctx: T["context"]) => any|Promise<any>) | VigorEmptyType
+    default: ((ctx: VigorRetryContextSchema<T>) => any|Promise<any>) | VigorEmptyType
     maxAttempts: number
     maxRestarts: number
     timeout: number

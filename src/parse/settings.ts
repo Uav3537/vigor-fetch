@@ -3,6 +3,7 @@ import { VigorParseBase, VigorParseSchema } from "./main"
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorParsePolicySettingsTypeLambda } from "./TL"
+import type { VigorParseContextSchema } from "./context"
 
 export type VigorParsePolicySettingsSchema<
     T extends VigorParseSchema<T>
@@ -10,7 +11,7 @@ export type VigorParsePolicySettingsSchema<
     __brand: VigorBrand<"Parse", "Policy<Settings<Schema">
 
     raw: boolean
-    default: ((ctx: T["context"]) => any|Promise<any>) | VigorEmptyType
+    default: ((ctx: VigorParseContextSchema<T>) => any|Promise<any>) | VigorEmptyType
     maxRestarts: number
 }
 

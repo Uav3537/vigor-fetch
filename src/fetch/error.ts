@@ -1,5 +1,6 @@
 import { VigorError, VigorErrorOptions } from "@core/error";
 import { VigorFetchSchema } from "./main";
+import type { VigorFetchContextSchema } from "./context";
 
 export const VigorFetchErrorMessageFuncs = {
     VALUE_REQUIRED: ({ key }: { key: string }) => `Value Required (missing ${key})`,
@@ -25,13 +26,13 @@ export class VigorFetchError<
 > extends VigorError<
     C,
     VigorFetchErrorDatas<C>,
-    T["context"]
+    VigorFetchContextSchema<T>
 > {
     /**
      * @param code - One of the fetch module's error codes.
      * @param options - Error metadata, including the `data` payload for `code`.
      */
-    constructor(code: C, options: VigorErrorOptions<VigorFetchErrorDatas<C>, T["context"]>) {
+    constructor(code: C, options: VigorErrorOptions<VigorFetchErrorDatas<C>, VigorFetchContextSchema<T>>) {
         const messageFn = VigorFetchErrorMessageFuncs[code] as (arg: VigorFetchErrorDatas<C>) => string
         super(code, messageFn(options.data), options)
     }

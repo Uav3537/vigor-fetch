@@ -5,6 +5,7 @@ import { VigorFetchPolicyMiddlewaresTypeLambda } from "./TL"
 import { VigorApply } from "@core/HKT"
 import { VigorDeepMerge } from "@core/types"
 import { VigorFetchOptions } from "./context"
+import type { VigorFetchContextSchema, VigorFetchBeforeContextSchema, VigorFetchAfterContextSchema } from "./context"
 
 export type VigorFetchPolicyMiddlewaresSchema<
     T extends VigorFetchSchema<T>
@@ -31,17 +32,17 @@ export type VigorFetchPolicyMiddlewaresFluent<
 > = {
     __brand: VigorBrand<"Fetch", "Policy<Middlewares<Fluent<Schema">
 
-    before: { _mode: "fluent", func: (ctx: T["context"]) => void }
-    after: { _mode: "fluent", func: (ctx: T["context"]) => void }
-    onResult: { _mode: "fluent", func: (res: T["context"]["result"]) => VigorFetchSchema<any>["context"]["result"] }
-    onError: { _mode: "fluent", func: (err: T["context"]["error"]) => void }
+    before: { _mode: "fluent", func: (ctx: VigorFetchBeforeContextSchema<T>) => void }
+    after: { _mode: "fluent", func: (ctx: VigorFetchAfterContextSchema<T>) => void }
+    onResult: { _mode: "fluent", func: (res: VigorFetchAfterContextSchema<T>["result"]) => VigorFetchContextSchema<any>["result"] }
+    onError: { _mode: "fluent", func: (err: VigorFetchContextSchema<T>["error"]) => void }
 }
 
 export type VigorFetchPolicyMiddlewaresApi<
     T extends VigorFetchSchema<T>
 > = {
-    setResult: (res: VigorFetchSchema<any>["context"]["result"]) => void
-    throwError: (err: VigorFetchSchema<any>["context"]["error"]) => void
+    setResult: (res: VigorFetchContextSchema<any>["result"]) => void
+    throwError: (err: VigorFetchContextSchema<any>["error"]) => void
     setOptions: (opts: VigorFetchOptions) => void
     setHeaders: (headers: VigorFetchOptions["headers"]) => void
     setBody: (body: VigorFetchOptions["body"]) => void
@@ -54,10 +55,10 @@ export type VigorFetchPolicyMiddlewaresIntercept<
 > = {
     __brand: VigorBrand<"Fetch", "Policy<Middlewares<Intercept<Schema">
 
-    before: { _mode: "intercept", func: (ctx: T["context"], api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "throwError"|"setOptions"|"setHeaders"|"setBody">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]> }
-    after: { _mode: "intercept", func: (ctx: T["context"], api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]> }
-    onResult: { _mode: "intercept", func: (ctx: T["context"], api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]> }
-    onError: { _mode: "intercept", func: (ctx: T["context"], api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult"|"throwError"|"proceedRestart"|"cancelRestart">) => VigorFetchSchema<any>["context"] | Promise<VigorFetchSchema<any>["context"]> }
+    before: { _mode: "intercept", func: (ctx: VigorFetchBeforeContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "throwError"|"setOptions"|"setHeaders"|"setBody">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>> }
+    after: { _mode: "intercept", func: (ctx: VigorFetchAfterContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>> }
+    onResult: { _mode: "intercept", func: (ctx: VigorFetchAfterContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>> }
+    onError: { _mode: "intercept", func: (ctx: VigorFetchContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult"|"throwError"|"proceedRestart"|"cancelRestart">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>> }
 }
 
 /**
@@ -78,10 +79,10 @@ export class VigorFetchPolicyMiddlewares<
     }
 
     /** Registers a middleware that runs before the request is sent. */
-    public before<const N extends VigorFetchPolicyMiddlewaresFluent<any>["before"]["func"]>(
+    public before<const N extends VigorFetchPolicyMiddlewaresFluent<T>["before"]["func"]>(
         type: "fluent", func: N
     ): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, { policy: { middlewares: { before: [{ _mode: "fluent", func: N }] } } }>>
-    public before<const N extends VigorFetchPolicyMiddlewaresIntercept<any>["before"]["func"]>(
+    public before<const N extends VigorFetchPolicyMiddlewaresIntercept<T>["before"]["func"]>(
         type: "intercept", func: N
     ): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, { policy: { middlewares: { before: [{ _mode: "intercept", func: N }] } } }>>
     public before(type: "fluent" | "intercept", func: any): any {
@@ -89,10 +90,10 @@ export class VigorFetchPolicyMiddlewares<
     }
 
     /** Registers a middleware that runs after the response is received. */
-    public after<const N extends VigorFetchPolicyMiddlewaresFluent<any>["after"]["func"]>(
+    public after<const N extends VigorFetchPolicyMiddlewaresFluent<T>["after"]["func"]>(
         type: "fluent", func: N
     ): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, { policy: { middlewares: { after: [{ _mode: "fluent", func: N }] } } }>>
-    public after<const N extends VigorFetchPolicyMiddlewaresIntercept<any>["after"]["func"]>(
+    public after<const N extends VigorFetchPolicyMiddlewaresIntercept<T>["after"]["func"]>(
         type: "intercept", func: N
     ): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, { policy: { middlewares: { after: [{ _mode: "intercept", func: N }] } } }>>
     public after(type: "fluent" | "intercept", func: any): any {
@@ -100,10 +101,10 @@ export class VigorFetchPolicyMiddlewares<
     }
 
     /** Registers a middleware that transforms or validates the parsed result. */
-    public onResult<const N extends VigorFetchPolicyMiddlewaresFluent<any>["onResult"]["func"]>(
+    public onResult<const N extends VigorFetchPolicyMiddlewaresFluent<T>["onResult"]["func"]>(
         type: "fluent", func: N
     ): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, { policy: { middlewares: { onResult: [{ _mode: "fluent", func: N }] } } }>>
-    public onResult<const N extends VigorFetchPolicyMiddlewaresIntercept<any>["onResult"]["func"]>(
+    public onResult<const N extends VigorFetchPolicyMiddlewaresIntercept<T>["onResult"]["func"]>(
         type: "intercept", func: N
     ): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, { policy: { middlewares: { onResult: [{ _mode: "intercept", func: N }] } } }>>
     public onResult(type: "fluent" | "intercept", func: any): any {
@@ -111,10 +112,10 @@ export class VigorFetchPolicyMiddlewares<
     }
 
     /** Registers a middleware that runs when the request ultimately fails. */
-    public onError<const N extends VigorFetchPolicyMiddlewaresFluent<any>["onError"]["func"]>(
+    public onError<const N extends VigorFetchPolicyMiddlewaresFluent<T>["onError"]["func"]>(
         type: "fluent", func: N
     ): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, { policy: { middlewares: { onError: [{ _mode: "fluent", func: N }] } } }>>
-    public onError<const N extends VigorFetchPolicyMiddlewaresIntercept<any>["onError"]["func"]>(
+    public onError<const N extends VigorFetchPolicyMiddlewaresIntercept<T>["onError"]["func"]>(
         type: "intercept", func: N
     ): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, { policy: { middlewares: { onError: [{ _mode: "intercept", func: N }] } } }>>
     public onError(type: "fluent" | "intercept", func: any): any {

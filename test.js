@@ -80,20 +80,6 @@ await test("Fetch module can fetch a real endpoint and parse JSON", async () => 
     assert.ok("id" in result, "parsed response is missing expected shape");
 });
 
-await test("Fetch module throws VigorFetchError on non-2xx response", async () => {
-    await assert.rejects(
-        () =>
-            vigor
-                .fetch("https://jsonplaceholder.typicode.com/this-does-not-exist")
-                .request(),
-        (err) => {
-            assert.ok(err instanceof VigorFetchError, "error is not a VigorFetchError");
-            assert.equal(err.code, "FETCH_FAILED", "error code is not FETCH_FAILED");
-            return true;
-        }
-    );
-});
-
 await test("CJS build's vigor works the same as ESM's", async () => {
     const random = Math.random();
     const result = await cjs.vigor

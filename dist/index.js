@@ -6,6 +6,7 @@ var VigorDefault = /* @__PURE__ */ Symbol("VigorDefault");
 var isVigorDefault = (v) => v === VigorDefault;
 var VigorEmpty = /* @__PURE__ */ Symbol("VigorEmpty");
 var isVigorEmpty = (v) => v === VigorEmpty;
+var VigorCastPlaceholder = /* @__PURE__ */ Symbol("VigorCastPlaceholder");
 
 // src/core/status.ts
 var VigorStatus = class {
@@ -186,7 +187,7 @@ var VigorAllError = class extends VigorError {
 var VigorAllBase = {
   __brand: createBrand("All", "Schema"),
   policy: VigorAllPolicyBase,
-  context: VigorAllContextBase
+  cast: VigorEmpty
 };
 var VigorAll = class _VigorAll extends VigorStatus {
   constructor(config = VigorAllBase) {
@@ -237,6 +238,18 @@ var VigorAll = class _VigorAll extends VigorStatus {
       if (ctx.flags.overrided) return { success: true, value: ctx.result };
       return { success: false, value: error };
     }
+  }
+  /**
+   * Overrides the resolved result type with `T`, taking priority over the
+   * naturally-inferred `unknown[]`. Can be called before or after
+   * `target()` (or any other configuration method); whichever `.cast<T>()`
+   * call happens last wins.
+   */
+  cast() {
+    return this._next(
+      { cast: VigorCastPlaceholder },
+      { cast: "replace" }
+    );
   }
   /** Runs all tasks and returns the results array directly, throwing on final failure. */
   async request() {
@@ -710,7 +723,7 @@ var VigorRetryContextBase = {
 var VigorRetryBase = {
   __brand: createBrand("Retry", "Schema"),
   policy: VigorRetryPolicyBase,
-  context: VigorRetryContextBase
+  cast: VigorEmpty
 };
 var VigorRetry = class _VigorRetry extends VigorStatus {
   constructor(config = VigorRetryBase) {
@@ -768,6 +781,18 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
       policy: { algorithms: input }
     }, { policy: { algorithms: "replace" } });
   }
+  /**
+   * Overrides the resolved result type with `T`, taking priority over the
+   * type naturally inferred from `target()`. Can be called before or after
+   * `target()` (or any other configuration method); whichever `.cast<T>()`
+   * call happens last wins.
+   */
+  cast() {
+    return this._next(
+      { cast: VigorCastPlaceholder },
+      { cast: "replace" }
+    );
+  }
   /** Runs the target and returns its result directly, throwing on final failure. */
   async request() {
     const res = await this.requestVerbose();
@@ -782,7 +807,7 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
   async requestRuntime(restartAttempt = 1) {
     const config = this._merge(this.config, {});
     let ctx = {
-      ...config.context,
+      ...VigorRetryContextBase,
       policy: config.policy
     };
     if (isVigorEmpty(ctx.policy.target)) throw new VigorRetryError("VALUE_REQUIRED", {
@@ -880,6 +905,7 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
             if (onAbort) mergedSignals.removeEventListener("abort", onAbort);
           }
         } catch (error) {
+          console.error(error);
           ctx.error = error;
           if (ctx.flags.brokeRetry) throw ctx.error;
           ctx.flags.doRetry = true;
@@ -1195,7 +1221,7 @@ var VigorParseContextBase = {
 var VigorParseBase = {
   __brand: createBrand("Parse", "Schema"),
   policy: VigorParsePolicyBase,
-  context: VigorParseContextBase
+  cast: VigorEmpty
 };
 var VigorParse = class _VigorParse extends VigorStatus {
   constructor(config = VigorParseBase) {
@@ -1238,6 +1264,18 @@ var VigorParse = class _VigorParse extends VigorStatus {
     }
     return this._next({ policy: { strategies: input } });
   }
+  /**
+   * Overrides the resolved result type with `T`, taking priority over the
+   * default `unknown` result. Can be called before or after `strategies()`
+   * (or any other configuration method); whichever `.cast<T>()` call
+   * happens last wins.
+   */
+  cast() {
+    return this._next(
+      { cast: VigorCastPlaceholder },
+      { cast: "replace" }
+    );
+  }
   /** Runs parsing and returns the result directly, throwing on final failure. */
   async request() {
     const res = await this.requestVerbose();
@@ -1252,7 +1290,7 @@ var VigorParse = class _VigorParse extends VigorStatus {
   async requestRuntime(restartAttempt = 1) {
     const config = this._merge(this.config, {});
     let ctx = {
-      ...config.context,
+      ...VigorParseContextBase,
       policy: config.policy
     };
     if (isVigorDefault(ctx.policy.target)) throw new VigorParseError("VALUE_REQUIRED", {
@@ -1421,7 +1459,7 @@ var VigorFetchError = class extends VigorError {
 var VigorFetchBase = {
   __brand: createBrand("Fetch", "Schema"),
   policy: VigorFetchPolicyBase,
-  context: VigorFetchContextBase
+  cast: VigorEmpty
 };
 var VigorFetch = class _VigorFetch extends VigorStatus {
   constructor(config = VigorFetchBase) {
@@ -1589,6 +1627,18 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
       data: { received: body }
     });
   }
+  /**
+   * Overrides the resolved result type with `T`, taking priority over the
+   * default `unknown` result. Can be called before or after `parse()` (or
+   * any other configuration method); whichever `.cast<T>()` call happens
+   * last wins.
+   */
+  cast() {
+    return this._next(
+      { cast: VigorCastPlaceholder },
+      { cast: "replace" }
+    );
+  }
   /** Runs the request and returns its parsed result directly, throwing on final failure. */
   async request() {
     const res = await this.requestVerbose();
@@ -1603,7 +1653,7 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
   async requestRuntime(restartAttempt = 1) {
     const config = this._merge(this.config, {});
     let ctx = {
-      ...config.context,
+      ...VigorFetchContextBase,
       policy: config.policy
     };
     const throwError = (err) => {
@@ -1773,11 +1823,23 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
 };
 
 // src/entry/main.ts
+function retryWithTarget(task) {
+  return new VigorRetry().target(task);
+}
+function parseWithTarget(response) {
+  return new VigorParse().target(response);
+}
+function fetchWithOrigin(origin) {
+  return new VigorFetch().origin(origin);
+}
+function allWithTargets(tasks) {
+  return new VigorAll().target(...tasks);
+}
 var vigorBase = {
-  retry: (...task) => task[0] !== void 0 ? new VigorRetry().target(task[0]) : new VigorRetry(),
-  parse: (...response) => response[0] !== void 0 ? new VigorParse().target(response[0]) : new VigorParse(),
-  fetch: (...origin) => origin[0] !== void 0 ? new VigorFetch().origin(origin[0]) : new VigorFetch(),
-  all: (...tasks) => tasks.length > 0 ? new VigorAll().target(...tasks) : new VigorAll(),
+  retry: ((task) => task !== void 0 ? retryWithTarget(task) : new VigorRetry()),
+  parse: ((response) => response !== void 0 ? parseWithTarget(response) : new VigorParse()),
+  fetch: ((origin) => origin !== void 0 ? fetchWithOrigin(origin) : new VigorFetch()),
+  all: ((...tasks) => tasks.length > 0 ? allWithTargets(tasks) : new VigorAll()),
   builders: {
     fetch: {
       settings: () => new VigorFetchPolicySettings(),

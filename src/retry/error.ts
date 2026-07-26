@@ -1,5 +1,6 @@
 import { VigorError, VigorErrorOptions } from "@core/error";
 import { VigorRetrySchema } from "./main";
+import type { VigorRetryContextSchema } from "./context";
 
 export const VigorRetryErrorMessageFuncs = {
     VALUE_REQUIRED: ({ key }: { key: string }) => `Value Required (missing ${key})`,
@@ -22,13 +23,13 @@ export class VigorRetryError<
 > extends VigorError<
     C,
     VigorRetryErrorDatas<C>,
-    T["context"]
+    VigorRetryContextSchema<T>
 > {
     /**
      * @param code - One of the retry module's error codes.
      * @param options - Error metadata, including the `data` payload for `code`.
      */
-    constructor(code: C, options: VigorErrorOptions<VigorRetryErrorDatas<C>, T["context"]>) {
+    constructor(code: C, options: VigorErrorOptions<VigorRetryErrorDatas<C>, VigorRetryContextSchema<T>>) {
         const messageFn = VigorRetryErrorMessageFuncs[code] as (arg: VigorRetryErrorDatas<C>) => string
         super(code, messageFn(options.data), options)
     }

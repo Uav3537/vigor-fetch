@@ -43,3 +43,15 @@ export type VigorExcludeEmpty<T> = Exclude<T, VigorEmptyType>
 
 /** Type guard checking whether a value is the {@link VigorEmpty} sentinel. */
 export const isVigorEmpty = (v: any): v is VigorEmptyType => v === VigorEmpty;
+
+/**
+ * Runtime placeholder written into a `cast` slot by `.cast<T>()`. It carries
+ * no meaningful runtime value — `.cast<T>()` is a purely type-level
+ * override, so the value is never read; only its presence (vs. `VigorEmpty`)
+ * matters when resolving the effective result type.
+ */
+export const VigorCastPlaceholder = Symbol("VigorCastPlaceholder") as symbol & {
+    __brand: VigorBrand<"Core", "Symbol_CastPlaceholder">
+}
+
+export type VigorCastPlaceholderType = typeof VigorCastPlaceholder

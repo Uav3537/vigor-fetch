@@ -1,5 +1,6 @@
 import { VigorError, VigorErrorOptions } from "@core/error";
 import { VigorAllSchema } from "./main";
+import type { VigorAllContextSchema } from "./context";
 
 export const VigorAllErrorMessageFuncs = {
     EMPTY_TARGET: (_: {}) => `Empty target list`,
@@ -19,13 +20,13 @@ export class VigorAllError<
 > extends VigorError<
     C,
     VigorAllErrorDatas<C>,
-    T["context"]
+    VigorAllContextSchema<T>
 > {
     /**
      * @param code - One of the all module's error codes.
      * @param options - Error metadata, including the `data` payload for `code`.
      */
-    constructor(code: C, options: VigorErrorOptions<VigorAllErrorDatas<C>, T["context"]>) {
+    constructor(code: C, options: VigorErrorOptions<VigorAllErrorDatas<C>, VigorAllContextSchema<T>>) {
         const messageFn = VigorAllErrorMessageFuncs[code] as (arg: VigorAllErrorDatas<C>) => string
         super(code, messageFn(options.data), options)
     }
