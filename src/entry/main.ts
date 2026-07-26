@@ -19,19 +19,12 @@ import {
     VigorRetryPolicyAlgorithmsCustom,
 } from "@retry/algorithms";
 
-export type VigorPlugin<O extends {[str: string]: any}>  = {
-    options: O,
-    func: (v: typeof vigor, options: O) => void
-}
-
-export const vigor = {
-    use: <P extends VigorPlugin<any>>(plugin: P, options?: P["options"]) => {
-        plugin.func(vigor, options)
-    },
-    retry: (task?:  Parameters<VigorRetry["target"]>[0]) => task ? new VigorRetry().target(task) : new VigorRetry(),
-    parse: (response?: Parameters<VigorParse["target"]>[0]) => response ? new VigorParse().target(response) : new VigorParse(),
-    fetch: (origin?: Parameters<VigorFetch["origin"]>[0]) => origin ? new VigorFetch().origin(origin) : new VigorFetch(),
-    all: (...tasks: Parameters<VigorAll["target"]>[0][]) => tasks.length > 0 ? new VigorAll().target(...tasks) : new VigorAll(),
+/** Everything `vigor` exposes except `use` — kept separate so `VigorInstance` (below) can self-reference without a circular-inference error. */
+const vigorBase = {
+    retry: (...task: [task?: Parameters<VigorRetry["target"]>[0]]): VigorRetry<any> => task[0] !== undefined ? new VigorRetry().target(task[0]) : new VigorRetry(),
+    parse: (...response: [response?: Parameters<VigorParse["target"]>[0]]): VigorParse<any> => response[0] !== undefined ? new VigorParse().target(response[0]) : new VigorParse(),
+    fetch: (...origin: [origin?: Parameters<VigorFetch["origin"]>[0]]): VigorFetch<any> => origin[0] !== undefined ? new VigorFetch().origin(origin[0]) : new VigorFetch(),
+    all: (...tasks: Parameters<VigorAll["target"]>) => tasks.length > 0 ? new VigorAll().target(...tasks) : new VigorAll(),
     builders: {
         fetch: {
             settings:    () => new VigorFetchPolicySettings(),
@@ -58,4 +51,44 @@ export const vigor = {
             middlewares: () => new VigorAllPolicyMiddlewares(),
         },
     }
-} as const
+}
+
+export type VigorInstance = typeof vigorBase & {
+    use: <P extends VigorPlugin<any, any>>(
+        plugin: P,
+        options?: P["options"]
+    ) => VigorInstance & ReturnType<P["func"]>
+}
+
+/**
+ * A plugin never mutates the `VigorInstance` it receives — it reads from it
+ * (e.g. to wrap an existing method) and returns `Ext`, the properties to
+ * merge into a *new* instance. `use()` owns cloning/merging, so plugins stay
+ * pure and `vigor` itself is never touched.
+ */
+export type VigorPlugin<
+    O extends { [str: string]: any } = {},
+    Ext extends Record<string, any> = Record<string, any>
+> = {
+    options: O,
+    func: (v: VigorInstance, options: O) => Ext
+}
+
+/** Shallow-clones a Vigor instance, including its nested `builders` groups, so callers never get a reference back into the original. */
+const cloneVigor = (v: VigorInstance): VigorInstance => ({
+    ...v,
+    builders: {
+        fetch: { ...v.builders.fetch },
+        retry: { ...v.builders.retry, algorithm: { ...v.builders.retry.algorithm } },
+        parse: { ...v.builders.parse },
+        all: { ...v.builders.all },
+    }
+})
+
+export const vigor: VigorInstance = {
+    ...vigorBase,
+    use: (plugin, options) => {
+        const ext = plugin.func(vigor, options as any)
+        return { ...cloneVigor(vigor), ...ext } as VigorInstance & typeof ext
+    },
+}
