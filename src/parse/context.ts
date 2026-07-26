@@ -33,7 +33,7 @@ export type VigorParseBeforeContextSchema<
 /** Context shape seen by `after` / `onResult` middlewares — a result has been produced. */
 export type VigorParseAfterContextSchema<
     T extends VigorParseSchema<T>
-> = VigorParseContextSchema<T, VigorCastResult<T["cast"], unknown> | VigorDefaultType>
+> = VigorParseContextSchema<T, VigorCastResult<T["cast"], unknown>>
 
 /** Context shape once the full middleware pipeline (including `onResult`) has run. */
 export type VigorParseResultContextSchema<

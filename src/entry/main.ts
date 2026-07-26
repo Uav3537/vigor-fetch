@@ -143,3 +143,13 @@ export const vigor: VigorInstance = {
         return { ...cloneVigor(vigor), ...ext } as VigorInstance & typeof ext
     },
 }
+
+type ApiResponse = {
+    success: true
+    data: any
+    errors: []
+}|{
+    success: false
+    data: null
+    errors: Array<any>
+}

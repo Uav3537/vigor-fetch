@@ -44,7 +44,7 @@ export type VigorFetchBeforeContextSchema<
 /** Context shape seen by `after` / `onResult` middlewares — a response has been received/parsed. */
 export type VigorFetchAfterContextSchema<
     T extends VigorFetchSchema<T>
-> = VigorFetchContextSchema<T, VigorCastResult<T["cast"], unknown> | VigorDefaultType>
+> = VigorFetchContextSchema<T, VigorCastResult<T["cast"], unknown>>
 
 /** Context shape once the full middleware pipeline (including `onResult`) has run. */
 export type VigorFetchResultContextSchema<
