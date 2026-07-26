@@ -21,9 +21,9 @@ import {
 
 /** Everything `vigor` exposes except `use` — kept separate so `VigorInstance` (below) can self-reference without a circular-inference error. */
 const vigorBase = {
-    retry: (...task: [task?: Parameters<VigorRetry["target"]>[0]]): VigorRetry<any> => task[0] !== undefined ? new VigorRetry().target(task[0]) : new VigorRetry(),
-    parse: (...response: [response?: Parameters<VigorParse["target"]>[0]]): VigorParse<any> => response[0] !== undefined ? new VigorParse().target(response[0]) : new VigorParse(),
-    fetch: (...origin: [origin?: Parameters<VigorFetch["origin"]>[0]]): VigorFetch<any> => origin[0] !== undefined ? new VigorFetch().origin(origin[0]) : new VigorFetch(),
+    retry: (...task: [task?: Parameters<VigorRetry["target"]>[0]]) => task[0] !== undefined ? new VigorRetry().target(task[0]) : new VigorRetry(),
+    parse: (...response: [response?: Parameters<VigorParse["target"]>[0]]) => response[0] !== undefined ? new VigorParse().target(response[0]) : new VigorParse(),
+    fetch: (...origin: [origin?: Parameters<VigorFetch["origin"]>[0]]) => origin[0] !== undefined ? new VigorFetch().origin(origin[0]) : new VigorFetch(),
     all: (...tasks: Parameters<VigorAll["target"]>) => tasks.length > 0 ? new VigorAll().target(...tasks) : new VigorAll(),
     builders: {
         fetch: {
