@@ -176,7 +176,10 @@ var VigorAllPolicyMiddlewaresBase = {
   __brand: createBrand("All", "Policy<Middlewares<Schema"),
   before: [],
   after: [],
-  onError: []
+  onResult: [],
+  beforeEach: [],
+  afterEach: [],
+  onErrorEach: []
 };
 var VigorAllPolicyMiddlewares = class _VigorAllPolicyMiddlewares extends VigorStatus {
   constructor(config = VigorAllBase) {
@@ -185,17 +188,26 @@ var VigorAllPolicyMiddlewares = class _VigorAllPolicyMiddlewares extends VigorSt
   _create(config) {
     return new _VigorAllPolicyMiddlewares(config);
   }
+  before(type, func) {
+    return this._next({ policy: { middlewares: { before: [{ _mode: type, func }] } } });
+  }
+  after(type, func) {
+    return this._next({ policy: { middlewares: { after: [{ _mode: type, func }] } } });
+  }
+  onResult(type, func) {
+    return this._next({ policy: { middlewares: { onResult: [{ _mode: type, func }] } } });
+  }
   /** Registers a middleware that runs before each task is invoked. */
-  before(func) {
-    return this._next({ policy: { middlewares: { before: [func] } } });
+  beforeEach(func) {
+    return this._next({ policy: { middlewares: { beforeEach: [func] } } });
   }
   /** Registers a middleware that runs after each task settles successfully. */
-  after(func) {
-    return this._next({ policy: { middlewares: { after: [func] } } });
+  afterEach(func) {
+    return this._next({ policy: { middlewares: { afterEach: [func] } } });
   }
   /** Registers a middleware that runs when an individual task fails. */
-  onError(func) {
-    return this._next({ policy: { middlewares: { onError: [func] } } });
+  onErrorEach(func) {
+    return this._next({ policy: { middlewares: { onErrorEach: [func] } } });
   }
 };
 
@@ -280,7 +292,6 @@ var VigorAll = class _VigorAll extends VigorStatus {
   target(...funcs) {
     return this._next({ policy: { target: funcs } });
   }
-  /** Configures the all-policy's general settings (concurrency, onlySuccess). */
   settings(input) {
     if (typeof input === "function" || input instanceof VigorAllPolicySettings) {
       const result = typeof input === "function" ? input(new VigorAllPolicySettings()) : input;
@@ -290,7 +301,6 @@ var VigorAll = class _VigorAll extends VigorStatus {
     }
     return this._next({ policy: { settings: input } });
   }
-  /** Configures the all-policy's per-task middleware pipeline. */
   middlewares(input) {
     if (typeof input === "function" || input instanceof VigorAllPolicyMiddlewares) {
       const result = typeof input === "function" ? input(new VigorAllPolicyMiddlewares()) : input;
@@ -300,13 +310,13 @@ var VigorAll = class _VigorAll extends VigorStatus {
     }
     return this._next({ policy: { middlewares: input } });
   }
-  /** Runs a single task through the before/after/onError middleware pipeline. */
+  /** Runs a single task through the beforeEach/afterEach/onErrorEach middleware pipeline. */
   async _runTask(task, policy) {
     let ctx = { ...VigorAllEachContextBase };
     try {
-      for (const before of policy.middlewares.before) await before(ctx);
+      for (const beforeEach of policy.middlewares.beforeEach) await beforeEach(ctx);
       ctx.result = await task();
-      for (const after of policy.middlewares.after) await after(ctx);
+      for (const afterEach of policy.middlewares.afterEach) await afterEach(ctx);
       return { success: true, value: ctx.result };
     } catch (error) {
       ctx.error = error;
@@ -314,7 +324,7 @@ var VigorAll = class _VigorAll extends VigorStatus {
         ctx.flags.overrided = true;
         ctx.result = r;
       };
-      for (const onError of policy.middlewares.onError) await onError(ctx, { setResult });
+      for (const onErrorEach of policy.middlewares.onErrorEach) await onErrorEach(ctx, { setResult });
       if (ctx.flags.overrided) return { success: true, value: ctx.result };
       return { success: false, value: error };
     }
@@ -341,15 +351,29 @@ var VigorAll = class _VigorAll extends VigorStatus {
   async requestVerbose() {
     return await this.requestRuntime();
   }
-  /** Internal execution loop implementing the bounded-concurrency worker pool. */
+  /** Internal execution loop implementing the bounded-concurrency worker pool and the batch-level before/after/onResult pipeline. */
   async requestRuntime(restartAttempt = 1) {
     const config = this._merge(this.config, {});
     const policy = config.policy;
+    let ctx = { ...VigorAllContextBase, policy };
+    const setResult = (r) => {
+      ctx = { ...ctx, result: r };
+    };
+    const throwError = (err) => {
+      throw err;
+    };
     try {
       if (policy.target.length === 0) throw new VigorAllError("EMPTY_TARGET", {
         method: "request",
         data: {}
       });
+      for (const mw of policy.middlewares.before) {
+        if (mw._mode === "fluent") {
+          await mw.func(ctx);
+        } else {
+          ctx = await mw.func(ctx, { throwError });
+        }
+      }
       const concurrency = Math.max(1, policy.settings.concurrency);
       const results = new Array(policy.target.length);
       let cursor = 0;
@@ -363,10 +387,24 @@ var VigorAll = class _VigorAll extends VigorStatus {
       await Promise.all(
         Array.from({ length: Math.min(concurrency, policy.target.length) }, () => worker())
       );
-      const result = policy.settings.onlySuccess ? results.filter((r) => r.success).map((r) => r.value) : results.map((r) => r.value);
+      ctx.result = policy.settings.onlySuccess ? results.filter((r) => r.success).map((r) => r.value) : results.map((r) => r.value);
+      for (const mw of policy.middlewares.after) {
+        if (mw._mode === "fluent") {
+          await mw.func(ctx);
+        } else {
+          ctx = await mw.func(ctx, { setResult, throwError });
+        }
+      }
+      for (const mw of policy.middlewares.onResult) {
+        if (mw._mode === "fluent") {
+          ctx.result = await mw.func(ctx.result);
+        } else {
+          ctx = await mw.func(ctx, { setResult, throwError });
+        }
+      }
       return {
         success: true,
-        data: result,
+        data: ctx.result,
         error: null
       };
     } catch (error) {
@@ -824,7 +862,6 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
       policy: { abortSignals: sig }
     });
   }
-  /** Configures the retry policy's general settings (max attempts, timeout, etc). */
   settings(input) {
     if (typeof input === "function" || input instanceof VigorRetryPolicySettings) {
       const result = typeof input === "function" ? input(new VigorRetryPolicySettings()) : input;
@@ -836,7 +873,6 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
       policy: { settings: input }
     });
   }
-  /** Configures the retry policy's middleware pipeline. */
   middlewares(input) {
     if (typeof input === "function" || input instanceof VigorRetryPolicyMiddlewares) {
       const result = typeof input === "function" ? input(new VigorRetryPolicyMiddlewares()) : input;
@@ -848,7 +884,6 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
       policy: { middlewares: input }
     });
   }
-  /** Configures the retry policy's delay algorithm. */
   algorithms(input) {
     if (typeof input === "function") {
       const result = input(new VigorRetryPolicyAlgorithms());
@@ -985,7 +1020,6 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
             if (onAbort) mergedSignals.removeEventListener("abort", onAbort);
           }
         } catch (error) {
-          console.error(error);
           ctx.error = error;
           if (ctx.flags.brokeRetry) throw ctx.error;
           ctx.flags.doRetry = true;
@@ -1314,7 +1348,6 @@ var VigorParse = class _VigorParse extends VigorStatus {
   target(response) {
     return this._next({ policy: { target: response } });
   }
-  /** Configures the parse policy's general settings. */
   settings(input) {
     if (typeof input === "function" || input instanceof VigorParsePolicySettings) {
       const result = typeof input === "function" ? input(new VigorParsePolicySettings()) : input;
@@ -1324,7 +1357,6 @@ var VigorParse = class _VigorParse extends VigorStatus {
     }
     return this._next({ policy: { settings: input } });
   }
-  /** Configures the parse policy's middleware pipeline. */
   middlewares(input) {
     if (typeof input === "function" || input instanceof VigorParsePolicyMiddlewares) {
       const result = typeof input === "function" ? input(new VigorParsePolicyMiddlewares()) : input;
@@ -1334,7 +1366,6 @@ var VigorParse = class _VigorParse extends VigorStatus {
     }
     return this._next({ policy: { middlewares: input } });
   }
-  /** Configures the parse policy's fallback chain of parsing strategies. */
   strategies(input) {
     if (typeof input === "function" || input instanceof VigorParsePolicyStrategies) {
       const result = typeof input === "function" ? input(new VigorParsePolicyStrategies()) : input;
@@ -1390,10 +1421,10 @@ var VigorParse = class _VigorParse extends VigorStatus {
           ctx = await middleware.func(ctx, { throwError });
         }
       }
-      const response = ctx.response;
       if (ctx.policy.settings.raw) {
-        ctx.result = response;
+        ctx.result = ctx.response;
       } else {
+        const response = ctx.response;
         const funcs = ctx.policy.strategies.funcs.length > 0 ? ctx.policy.strategies.funcs : [VigorParseContentTypeStrategy];
         let parsed = false;
         for (const [i, func] of funcs.entries()) {
@@ -1606,7 +1637,6 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
     if (mode === "overwrite") return this._next({ policy: { extra: obj } }, { policy: { extra: "replace" } });
     return this._next({ policy: { extra: obj } });
   }
-  /** Configures the fetch policy's general settings. */
   settings(input) {
     if (typeof input === "function" || input instanceof VigorFetchPolicySettings) {
       const result = typeof input === "function" ? input(new VigorFetchPolicySettings()) : input;
@@ -1616,7 +1646,6 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
     }
     return this._next({ policy: { settings: input } });
   }
-  /** Configures the fetch policy's middleware pipeline. */
   middlewares(input) {
     if (typeof input === "function" || input instanceof VigorFetchPolicyMiddlewares) {
       const result = typeof input === "function" ? input(new VigorFetchPolicyMiddlewares()) : input;
@@ -1626,7 +1655,6 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
     }
     return this._next({ policy: { middlewares: input } });
   }
-  /** Configures the retry engine used to send the underlying request. */
   retry(input) {
     if (typeof input === "function" || input instanceof VigorRetry) {
       const result = typeof input === "function" ? input(new VigorRetry()) : input;
@@ -1634,7 +1662,6 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
     }
     return this._next({ policy: { retry: input } }, { policy: { retry: "replace" } });
   }
-  /** Configures the parse engine used to interpret the response. */
   parse(input) {
     if (typeof input === "function" || input instanceof VigorParse) {
       const result = typeof input === "function" ? input(new VigorParse()) : input;

@@ -7,7 +7,8 @@ import { VigorCastResult, VigorDeepMerge, VigorReturnType } from "@core/types"
 import type {
     VigorRetryContextSchema,
     VigorRetryBeforeContextSchema,
-    VigorRetryAfterContextSchema
+    VigorRetryAfterContextSchema,
+    VigorRetryOnResultContextSchema
 } from "./context"
 
 export type VigorRetryPolicyMiddlewaresSchema<
@@ -49,7 +50,7 @@ export type VigorRetryPolicyMiddlewaresFluent<
     }
     onResult: {
         _mode: "fluent",
-        func: (res: VigorRetryAfterContextSchema<T>["result"]) => VigorRetryContextSchema<any>["result"]
+        func: (res: VigorRetryOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorRetryContextSchema<any>["result"]
     }
     retryIf: {
         _mode: "fluent",
@@ -98,7 +99,7 @@ export type VigorRetryPolicyMiddlewaresIntercept<
     }
     onResult: {
         _mode: "intercept",
-        func: (ctx: VigorRetryAfterContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
+        func: (ctx: VigorRetryOnResultContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
     }
     retryIf: {
         _mode: "intercept",

@@ -1,7 +1,7 @@
 import { createBrand, VigorBrand, VigorDefault, VigorDefaultType } from "@core/symbol"
-import { VigorCastResult } from "@core/types"
 import { VigorFetchPolicyBase } from "./policy"
 import type { VigorFetchSchema } from "./main"
+import { VigorFetchPipeInitialContext, VigorFetchPipeResult, VigorFetchPipeStepVoid, VigorFetchPipeStepResult } from "./middlewares"
 
 export type VigorFetchExtraOptions = Omit<RequestInit, "method" | "headers" | "body" | "signal">
 
@@ -19,7 +19,7 @@ export type VigorFetchOptions = VigorFetchExtraOptions & {
  */
 export type VigorFetchContextSchema<
     T extends VigorFetchSchema<T>,
-    R = VigorCastResult<T["cast"], unknown> | VigorDefaultType
+    R = VigorFetchPipeResult<T> | VigorDefaultType
 > = {
     __brand: VigorBrand<"Fetch", "Context<Schema">
 
@@ -29,7 +29,7 @@ export type VigorFetchContextSchema<
     error: unknown
     options: VigorFetchOptions | VigorDefaultType
     flags: {
-        overrided: boolean
+        overridden: boolean
         restarted: boolean
     },
     record: Record<string, any>,
@@ -41,15 +41,29 @@ export type VigorFetchBeforeContextSchema<
     T extends VigorFetchSchema<T>
 > = VigorFetchContextSchema<T, VigorDefaultType>
 
-/** Context shape seen by `after` / `onResult` middlewares — a response has been received/parsed. */
+/** Context shape seen by `after` middlewares — reflects the result after `before` has run. */
 export type VigorFetchAfterContextSchema<
     T extends VigorFetchSchema<T>
-> = VigorFetchContextSchema<T, VigorCastResult<T["cast"], unknown>>
+> = VigorFetchPipeStepResult<
+    VigorFetchPipeStepVoid<
+        VigorFetchPipeInitialContext<T>,
+        T["policy"]["middlewares"]["before"]
+    >,
+    T["policy"]["middlewares"]["after"]
+>
+
+/** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
+export type VigorFetchOnResultContextSchema<
+    T extends VigorFetchSchema<T>
+> = VigorFetchPipeStepResult<
+    VigorFetchAfterContextSchema<T>,
+    T["policy"]["middlewares"]["onResult"]
+>
 
 /** Context shape once the full middleware pipeline (including `onResult`) has run. */
 export type VigorFetchResultContextSchema<
     T extends VigorFetchSchema<T>
-> = VigorFetchContextSchema<T, VigorCastResult<T["cast"], unknown>>
+> = VigorFetchContextSchema<T, VigorFetchPipeResult<T>>
 
 export const VigorFetchContextBase = {
     __brand: createBrand("Fetch", "Context<Schema"),
@@ -60,7 +74,7 @@ export const VigorFetchContextBase = {
     error: VigorDefault,
     options: VigorDefault,
     flags: {
-        overrided: false,
+        overridden: false,
         restarted: false
     },
     record: {},

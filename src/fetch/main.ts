@@ -1,10 +1,10 @@
-import { createBrand, isVigorDefault, isVigorEmpty, VigorBrand, VigorCastPlaceholder, VigorDefault, VigorDefaultType, VigorEmpty } from "@core/symbol"
+import { createBrand, isVigorDefault, isVigorEmpty, VigorBrand, VigorCastPlaceholder, VigorDefault, VigorDefaultType, VigorExcludeDefault, VigorEmpty } from "@core/symbol"
 import { VigorFetchContextBase, VigorFetchContextSchema, VigorFetchOptions } from "./context"
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorFetchTypeLambda } from "./TL"
 import { VigorFetchPolicySettings, VigorFetchPolicySettingsSchema } from "./settings"
-import { VigorCastResult, VigorDeepPartial } from "@core/types"
+import { VigorDeepMerge, VigorDeepPartial } from "@core/types"
 import { VigorFetchPolicyMiddlewares, VigorFetchPolicyMiddlewaresApi, VigorFetchPolicyMiddlewaresSchema } from "./middlewares"
 import { VigorFetchError } from "./error"
 import { VigorRetry, VigorRetrySchema } from "@retry/main"
@@ -104,14 +104,15 @@ export class VigorFetch<
 
     /** Configures the fetch policy's general settings. */
     public settings<
-        const N extends VigorDeepPartial<VigorFetchPolicySettingsSchema<T>>,
-        R extends VigorFetchSchema<any>
-    >(
-        input:
-            | N
-            | ((s: VigorFetchPolicySettings<T>) => VigorFetchPolicySettings<R>)
-            | VigorFetchPolicySettings<R>
-    ) {
+        const N extends VigorDeepPartial<VigorFetchPolicySettingsSchema<T>>
+    >(input: N): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { settings: N } }>>
+    public settings<
+        const R extends VigorFetchSchema<any>
+    >(input: (s: VigorFetchPolicySettings<T>) => VigorFetchPolicySettings<R>): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { settings: R["policy"]["settings"] } }>>
+    public settings<
+        const R extends VigorFetchSchema<any>
+    >(input: VigorFetchPolicySettings<R>): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { settings: R["policy"]["settings"] } }>>
+    public settings(input: any): any {
         if (typeof input === 'function' || input instanceof VigorFetchPolicySettings) {
             const result = typeof input === 'function'
                 ? input(new VigorFetchPolicySettings<T>())
@@ -124,14 +125,15 @@ export class VigorFetch<
     }
     /** Configures the fetch policy's middleware pipeline. */
     public middlewares<
-        const N extends VigorDeepPartial<VigorFetchPolicyMiddlewaresSchema<T>>,
-        R extends VigorFetchSchema<any>
-    >(
-        input:
-            | N
-            | ((s: VigorFetchPolicyMiddlewares<T>) => VigorFetchPolicyMiddlewares<R>)
-            | VigorFetchPolicyMiddlewares<R>
-    ) {
+        const N extends VigorDeepPartial<VigorFetchPolicyMiddlewaresSchema<T>>
+    >(input: N): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { middlewares: N } }>>
+    public middlewares<
+        const R extends VigorFetchSchema<any>
+    >(input: (s: VigorFetchPolicyMiddlewares<T>) => VigorFetchPolicyMiddlewares<R>): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { middlewares: R["policy"]["middlewares"] } }>>
+    public middlewares<
+        const R extends VigorFetchSchema<any>
+    >(input: VigorFetchPolicyMiddlewares<R>): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { middlewares: R["policy"]["middlewares"] } }>>
+    public middlewares(input: any): any {
         if (typeof input === 'function' || input instanceof VigorFetchPolicyMiddlewares) {
             const result = typeof input === 'function'
                 ? input(new VigorFetchPolicyMiddlewares<T>())
@@ -144,14 +146,15 @@ export class VigorFetch<
     }
     /** Configures the retry engine used to send the underlying request. */
     public retry<
-        const N extends VigorDeepPartial<VigorRetrySchema<any>>,
-        R extends VigorRetrySchema<any>
-    >(
-        input:
-            | N
-            | ((r: VigorRetry) => VigorRetry<R>)
-            | VigorRetry<R>
-    ) {
+        const N extends VigorDeepPartial<VigorRetrySchema<any>>
+    >(input: N): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { retry: N } }>>
+    public retry<
+        const R extends VigorRetrySchema<any>
+    >(input: (r: VigorRetry) => VigorRetry<R>): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { retry: R } }>>
+    public retry<
+        const R extends VigorRetrySchema<any>
+    >(input: VigorRetry<R>): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { retry: R } }>>
+    public retry(input: any): any {
         if (typeof input === 'function' || input instanceof VigorRetry) {
             const result = typeof input === 'function'
                 ? input(new VigorRetry())
@@ -162,14 +165,15 @@ export class VigorFetch<
     }
     /** Configures the parse engine used to interpret the response. */
     public parse<
-        const N extends VigorDeepPartial<VigorParseSchema<any>>,
-        R extends VigorParseSchema<any>
-    >(
-        input:
-            | N
-            | ((p: VigorParse) => VigorParse<R>)
-            | VigorParse<R>
-    ) {
+        const N extends VigorDeepPartial<VigorParseSchema<any>>
+    >(input: N): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { parse: N } }>>
+    public parse<
+        const R extends VigorParseSchema<any>
+    >(input: (p: VigorParse) => VigorParse<R>): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { parse: R } }>>
+    public parse<
+        const R extends VigorParseSchema<any>
+    >(input: VigorParse<R>): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { parse: R } }>>
+    public parse(input: any): any {
         if (typeof input === 'function' || input instanceof VigorParse) {
             const result = typeof input === 'function'
                 ? input(new VigorParse())
@@ -273,13 +277,13 @@ export class VigorFetch<
         )
     }
     /** Runs the request and returns its parsed result directly, throwing on final failure. */
-    public async request<R = VigorCastResult<T["cast"], VigorFetchContextSchema<T>["result"]>>() {
+    public async request<R = VigorExcludeDefault<VigorFetchContextSchema<T>["result"]>>() {
         const res = await this.requestVerbose<R>()
         if(res.success) return res.data
         throw res.error
     }
     /** Runs the request and returns a result/error envelope instead of throwing. */
-    public async requestVerbose<R = VigorCastResult<T["cast"], VigorFetchContextSchema<T>["result"]>>() {
+    public async requestVerbose<R = VigorExcludeDefault<VigorFetchContextSchema<T>["result"]>>() {
         return await this.requestRuntime<R>()
     }
     /** Internal execution loop implementing URL building, retry, parsing, and restart handling. */
@@ -396,7 +400,7 @@ export class VigorFetch<
             ctx.response = await retryEngine.request<Response>()
 
             const parseEngine = new VigorParse(ctx.policy.parse).target(ctx.response)
-            ctx.result = await parseEngine.request<R>()
+            ctx.result = await parseEngine.request<R>() as typeof ctx.result
 
             for (const middleware of ctx.policy.middlewares.after) {
                 if (middleware._mode === "fluent") {
@@ -422,11 +426,11 @@ export class VigorFetch<
             }
         } catch (error) {
             ctx.error = error
-            ctx.flags.overrided = false
+            ctx.flags.overridden = false
             ctx.flags.restarted = false
 
             const setResult: VigorFetchPolicyMiddlewaresApi<T>["setResult"] = (r) => {
-                ctx.flags.overrided = true
+                ctx.flags.overridden = true
                 ctx.result = r
             }
             const proceedRestart: VigorFetchPolicyMiddlewaresApi<T>["proceedRestart"] = () => ctx.flags.restarted = true
@@ -451,7 +455,7 @@ export class VigorFetch<
                 })
                 return await this.requestRuntime<R>(restartAttempt + 1)
             }
-            if (ctx.flags.overrided) return {
+            if (ctx.flags.overridden) return {
                 success: true,
                 data: ctx.result as R,
                 error: null

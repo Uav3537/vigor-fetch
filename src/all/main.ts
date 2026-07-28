@@ -1,10 +1,10 @@
-import { createBrand, VigorBrand, VigorCastPlaceholder, VigorEmpty } from "@core/symbol"
-import { VigorAllEachContextBase, VigorAllEachContextSchema } from "./context"
+import { createBrand, VigorBrand, VigorCastPlaceholder, VigorEmpty, VigorExcludeDefault } from "@core/symbol"
+import { VigorAllContextBase, VigorAllContextSchema, VigorAllEachContextBase, VigorAllEachContextSchema } from "./context"
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorAllTypeLambda } from "./TL"
 import { VigorAllPolicySettings, VigorAllPolicySettingsSchema } from "./settings"
-import { VigorCastResult, VigorDeepPartial } from "@core/types"
+import { VigorDeepMerge, VigorDeepPartial } from "@core/types"
 import { VigorAllPolicyMiddlewares, VigorAllPolicyMiddlewaresSchema } from "./middlewares"
 import { VigorAllError } from "./error"
 import { VigorAllPolicyBase, VigorAllPolicySchema, VigorAllTask } from "./policy"
@@ -51,14 +51,15 @@ export class VigorAll<
     }
     /** Configures the all-policy's general settings (concurrency, onlySuccess). */
     public settings<
-        const N extends VigorDeepPartial<VigorAllPolicySettingsSchema<T>>,
-        R extends VigorAllSchema<any>
-    >(
-        input:
-            | N
-            | ((s: VigorAllPolicySettings<T>) => VigorAllPolicySettings<R>)
-            | VigorAllPolicySettings<R>
-    ) {
+        const N extends VigorDeepPartial<VigorAllPolicySettingsSchema<T>>
+    >(input: N): VigorApply<VigorAllTypeLambda, VigorDeepMerge<T, { policy: { settings: N } }>>
+    public settings<
+        const R extends VigorAllSchema<any>
+    >(input: (s: VigorAllPolicySettings<T>) => VigorAllPolicySettings<R>): VigorApply<VigorAllTypeLambda, VigorDeepMerge<T, { policy: { settings: R["policy"]["settings"] } }>>
+    public settings<
+        const R extends VigorAllSchema<any>
+    >(input: VigorAllPolicySettings<R>): VigorApply<VigorAllTypeLambda, VigorDeepMerge<T, { policy: { settings: R["policy"]["settings"] } }>>
+    public settings(input: any): any {
         if (typeof input === 'function' || input instanceof VigorAllPolicySettings) {
             const result = typeof input === 'function'
                 ? input(new VigorAllPolicySettings<T>())
@@ -71,14 +72,15 @@ export class VigorAll<
     }
     /** Configures the all-policy's per-task middleware pipeline. */
     public middlewares<
-        const N extends VigorDeepPartial<VigorAllPolicyMiddlewaresSchema<T>>,
-        R extends VigorAllSchema<any>
-    >(
-        input:
-            | N
-            | ((s: VigorAllPolicyMiddlewares<T>) => VigorAllPolicyMiddlewares<R>)
-            | VigorAllPolicyMiddlewares<R>
-    ) {
+        const N extends VigorDeepPartial<VigorAllPolicyMiddlewaresSchema<T>>
+    >(input: N): VigorApply<VigorAllTypeLambda, VigorDeepMerge<T, { policy: { middlewares: N } }>>
+    public middlewares<
+        const R extends VigorAllSchema<any>
+    >(input: (s: VigorAllPolicyMiddlewares<T>) => VigorAllPolicyMiddlewares<R>): VigorApply<VigorAllTypeLambda, VigorDeepMerge<T, { policy: { middlewares: R["policy"]["middlewares"] } }>>
+    public middlewares<
+        const R extends VigorAllSchema<any>
+    >(input: VigorAllPolicyMiddlewares<R>): VigorApply<VigorAllTypeLambda, VigorDeepMerge<T, { policy: { middlewares: R["policy"]["middlewares"] } }>>
+    public middlewares(input: any): any {
         if (typeof input === 'function' || input instanceof VigorAllPolicyMiddlewares) {
             const result = typeof input === 'function'
                 ? input(new VigorAllPolicyMiddlewares<T>())
@@ -90,7 +92,7 @@ export class VigorAll<
         return this._next({ policy: { middlewares: input } } as const)
     }
 
-    /** Runs a single task through the before/after/onError middleware pipeline. */
+    /** Runs a single task through the beforeEach/afterEach/onErrorEach middleware pipeline. */
     private async _runTask(
         task: VigorAllTask,
         policy: VigorAllPolicySchema<any>
@@ -98,14 +100,14 @@ export class VigorAll<
         let ctx: VigorAllEachContextSchema<any> = { ...VigorAllEachContextBase }
 
         try {
-            for (const before of policy.middlewares.before) await before(ctx)
+            for (const beforeEach of policy.middlewares.beforeEach) await beforeEach(ctx)
             ctx.result = await task()
-            for (const after of policy.middlewares.after) await after(ctx)
+            for (const afterEach of policy.middlewares.afterEach) await afterEach(ctx)
             return { success: true, value: ctx.result }
         } catch (error) {
             ctx.error = error
             const setResult = (r: unknown) => { ctx.flags.overrided = true; ctx.result = r }
-            for (const onError of policy.middlewares.onError) await onError(ctx, { setResult })
+            for (const onErrorEach of policy.middlewares.onErrorEach) await onErrorEach(ctx, { setResult })
             if (ctx.flags.overrided) return { success: true, value: ctx.result }
             return { success: false, value: error }
         }
@@ -124,17 +126,17 @@ export class VigorAll<
         )
     }
     /** Runs all tasks and returns the results array directly, throwing on final failure. */
-    public async request<R = VigorCastResult<T["cast"], unknown[]>>() {
+    public async request<R = VigorExcludeDefault<VigorAllContextSchema<T>["result"]>>() {
         const res = await this.requestVerbose<R>()
         if(res.success) return res.data
         throw res.error
     }
     /** Runs all tasks and returns a result/error envelope instead of throwing. */
-    public async requestVerbose<R = VigorCastResult<T["cast"], unknown[]>>() {
+    public async requestVerbose<R = VigorExcludeDefault<VigorAllContextSchema<T>["result"]>>() {
         return await this.requestRuntime<R>()
     }
-    /** Internal execution loop implementing the bounded-concurrency worker pool. */
-    private async requestRuntime<R = unknown[]>(
+    /** Internal execution loop implementing the bounded-concurrency worker pool and the batch-level before/after/onResult pipeline. */
+    private async requestRuntime<R = unknown>(
         restartAttempt: number = 1
     ): Promise<
         {success: true, data: R, error: null} |
@@ -143,11 +145,23 @@ export class VigorAll<
         const config = this._merge(this.config, {}) as VigorAllSchema<T>
         const policy = config.policy
 
+        let ctx: VigorAllContextSchema<any> = { ...VigorAllContextBase, policy }
+        const setResult = (r: unknown) => { ctx = { ...ctx, result: r } }
+        const throwError = (err: unknown) => { throw err }
+
         try {
             if (policy.target.length === 0) throw new VigorAllError("EMPTY_TARGET", {
                 method: "request",
                 data: {}
             })
+
+            for (const mw of policy.middlewares.before) {
+                if (mw._mode === "fluent") {
+                    await mw.func(ctx as any)
+                } else {
+                    ctx = await mw.func(ctx as any, { throwError }) as typeof ctx
+                }
+            }
 
             const concurrency = Math.max(1, policy.settings.concurrency)
             const results: { success: boolean, value: unknown }[] = new Array(policy.target.length)
@@ -164,13 +178,29 @@ export class VigorAll<
                 Array.from({ length: Math.min(concurrency, policy.target.length) }, () => worker())
             )
 
-            const result = policy.settings.onlySuccess
+            ctx.result = policy.settings.onlySuccess
                 ? results.filter(r => r.success).map(r => r.value)
                 : results.map(r => r.value)
 
+            for (const mw of policy.middlewares.after) {
+                if (mw._mode === "fluent") {
+                    await mw.func(ctx as any)
+                } else {
+                    ctx = await mw.func(ctx as any, { setResult, throwError }) as typeof ctx
+                }
+            }
+
+            for (const mw of policy.middlewares.onResult) {
+                if (mw._mode === "fluent") {
+                    ctx.result = await mw.func(ctx.result as any)
+                } else {
+                    ctx = await mw.func(ctx as any, { setResult, throwError }) as typeof ctx
+                }
+            }
+
             return {
                 success: true,
-                data: result as R,
+                data: ctx.result as R,
                 error: null
             }
         } catch (error) {

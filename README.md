@@ -12,8 +12,9 @@ Vigor gives you an immutable, chainable API for building robust network logic: r
 - 🔁 **Two-level retry** — per-attempt retry/backoff *and* whole-pipeline restart, each independently configurable
 - 🌐 **Smart fetch layer** — automatic `429 Retry-After` handling, configurable "never retry" status codes
 - 🔌 **Content-aware parsing** — auto-detects `Content-Type`, with a sniffing fallback and custom strategies
-- ⚡ **Bounded concurrency runner** — run many tasks with a concurrency cap and per-task hooks
+- ⚡ **Bounded concurrency runner** — run many tasks with a concurrency cap, batch-level hooks, and per-task hooks
 - 🪝 **Two middleware modes** — `"fluent"` (return a value) or `"intercept"` (get an explicit control API)
+- 🧬 **Type-level result override** — `.cast<T>()` on every module, when you know better than inference does
 - 🧠 **TypeScript-first** — config shape is inferred and carried through the whole chain
 
 ---
@@ -92,12 +93,40 @@ vigor.retry(task?)     // -> VigorRetry, target pre-set if given
 vigor.parse(response?) // -> VigorParse, target pre-set if given
 vigor.all(...tasks)    // -> VigorAll, target pre-set if any tasks given
 vigor.use(plugin, options?)
+vigor.builders         // direct access to each module's sub-builders
 ```
 
-Every module follows the same shape: an **immutable builder** with `.settings()`, `.middlewares()`, and a terminal `.request()` / `.requestVerbose()` pair.
+Every module follows the same shape: an **immutable builder** with `.settings()`, `.middlewares()`, a terminal `.request()` / `.requestVerbose()` pair, and a `.cast<T>()` escape hatch for the result type.
 
 - `.request()` returns the result directly and **throws** on final failure.
 - `.requestVerbose()` never throws — it returns `{ success: true, data, error: null }` or `{ success: false, data: null, error }`.
+- `.cast<T>()` overrides the inferred result type with `T`. It can be called before or after any other configuration method — whichever `.cast<T>()` call happens *last* in the chain wins, and it always takes priority over the naturally-inferred type.
+
+### `vigor.builders`
+
+Every sub-builder used internally by `.settings()`/`.middlewares()`/etc. is also reachable directly, if you'd rather construct a reusable config object outside of a chain:
+
+```ts
+vigor.builders.fetch.settings()      // -> VigorFetchPolicySettings
+vigor.builders.fetch.middlewares()   // -> VigorFetchPolicyMiddlewares
+
+vigor.builders.retry.settings()      // -> VigorRetryPolicySettings
+vigor.builders.retry.middlewares()   // -> VigorRetryPolicyMiddlewares
+vigor.builders.retry.algorithms()    // -> VigorRetryPolicyAlgorithms
+vigor.builders.retry.algorithm.constant()
+vigor.builders.retry.algorithm.linear()
+vigor.builders.retry.algorithm.backoff()
+vigor.builders.retry.algorithm.custom()
+
+vigor.builders.parse.settings()      // -> VigorParsePolicySettings
+vigor.builders.parse.middlewares()   // -> VigorParsePolicyMiddlewares
+vigor.builders.parse.strategies()    // -> VigorParsePolicyStrategies
+
+vigor.builders.all.settings()        // -> VigorAllPolicySettings
+vigor.builders.all.middlewares()     // -> VigorAllPolicyMiddlewares
+```
+
+This is equivalent to `new VigorFetchPolicySettings()` etc., just namespaced under `vigor` for discoverability.
 
 ---
 
@@ -119,6 +148,7 @@ Every module follows the same shape: an **immutable builder** with `.settings()`
 | `middlewares(fn \| config)` | Configures the fetch middleware pipeline (below) |
 | `retry(fn \| config \| VigorRetry)` | Configures the **internal retry engine** used to send the request |
 | `parse(fn \| config \| VigorParse)` | Configures the **internal parse engine** used to interpret the response |
+| `cast<T>()` | Overrides the inferred result type with `T` |
 | `request()` | Executes and returns the parsed result, throwing on failure |
 | `requestVerbose()` | Executes and returns `{ success, data, error }` |
 
@@ -207,6 +237,19 @@ const data = await vigor
 
 Both accept a config object, a builder callback, or an already-built `VigorRetry`/`VigorParse` instance. The target function you'd normally set with `.target()` is ignored here — fetch always supplies its own target (the actual `fetch()` call) and its own `.target()` (`response.clone()` fed through your parse config).
 
+### cast
+
+```ts
+const data = await vigor
+  .fetch("/api/users")
+  .parse(p => p.strategies(s => s.json()))
+  .cast<{ id: string; name: string }[]>()
+  .request();
+// data: { id: string; name: string }[]
+```
+
+Without `.cast()`, the result type falls back to whatever your `parse()` config naturally infers (`unknown` if unconfigured). `.cast()` overrides that regardless of where in the chain it's called.
+
 ---
 
 ## `vigor.retry`
@@ -220,6 +263,7 @@ Both accept a config object, a builder callback, or an already-built `VigorRetry
 | `settings(fn \| config)` | General retry settings (below) |
 | `middlewares(fn \| config)` | Middleware pipeline (below) |
 | `algorithms(fn)` | Selects and configures the delay algorithm (below) |
+| `cast<T>()` | Overrides the inferred result type with `T` |
 | `request()` / `requestVerbose()` | Executes |
 
 ```ts
@@ -307,6 +351,7 @@ There are two independent resilience layers here:
 | `settings(fn \| config)` | General settings (below) |
 | `middlewares(fn \| config)` | Middleware pipeline (below) |
 | `strategies(fn \| config)` | Configures the ordered fallback chain of parsing strategies |
+| `cast<T>()` | Overrides the inferred result type with `T` |
 | `request()` / `requestVerbose()` | Executes |
 
 ### settings
@@ -363,7 +408,7 @@ const data = await vigor
 
 ## `vigor.all`
 
-Runs a fixed list of zero-argument tasks with bounded concurrency.
+Runs a fixed list of zero-argument tasks with bounded concurrency, `Promise.allSettled`-style — an individual task failing never makes the whole batch throw by itself.
 
 ### Methods
 
@@ -371,7 +416,8 @@ Runs a fixed list of zero-argument tasks with bounded concurrency.
 |---|---|
 | `target(...funcs)` | Sets the task list — each is `() => unknown \| Promise<unknown>` |
 | `settings(fn \| config)` | Concurrency settings (below) |
-| `middlewares(fn \| config)` | Per-task hooks (below) |
+| `middlewares(fn \| config)` | Batch-level and per-task hooks (below) |
+| `cast<T>()` | Overrides the inferred result type with `T` |
 | `request()` / `requestVerbose()` | Executes |
 
 ```ts
@@ -390,43 +436,71 @@ const results = await vigor
 | Method | Description | Default |
 |---|---|---|
 | `concurrency(num)` | Max number of tasks running at once | `5` |
-| `onlySuccess(bool)` | When `true`, filters the final array down to only tasks whose middleware chain resolved successfully | `false` |
+| `onlySuccess(bool)` | When `true`, filters the final array down to only tasks whose result wasn't recovered as a failure | `false` |
 
-> Unlike `vigor.retry`/`vigor.fetch`/`vigor.parse`, `vigor.all` has no `default`/fallback setting, and per-task failures don't throw the whole call by themselves — a task that fails (and whose `onError` middleware doesn't call `setResult`) simply contributes its error value into the results array (or is dropped, if `onlySuccess` is on). The only thing that makes `.request()` throw is an **empty** task list.
+> Unlike `vigor.retry`/`vigor.fetch`/`vigor.parse`, `vigor.all` has no `default`/fallback setting and no batch-level `onError` — the only thing that makes `.request()` throw is an **empty** task list (`EMPTY_TARGET`). Per-task failures are handled by `onErrorEach` (below) instead.
+
+**Result typing:** when `onlySuccess` is `false` (the default) and `target(...)` is given as literal task functions, the result is inferred as a **tuple** matching each task's own return type — `.target(() => 1 as const, () => "a")` infers `[1, "a"]`, not `unknown[]`. Setting `onlySuccess(true)` filters the array at runtime to an arbitrary length, so the type falls back to a plain array. `.cast<T>()` overrides either case.
 
 ### hooks (`middlewares`)
 
-Unlike the other modules, `all`'s per-task hooks are plain functions — there's no `"fluent"`/`"intercept"` mode split.
+`all` has **two tiers** of hooks: batch-level stages (run once for the whole call, support `"fluent"`/`"intercept"` modes like the other modules) and per-task stages (run once per task, plain callbacks with no mode argument).
 
-| Stage | Signature | Runs |
-|---|---|---|
-| `before(fn)` | `(ctx) => void \| Promise<void>` | Before each task is invoked |
-| `after(fn)` | `(ctx) => void \| Promise<void>` | After a task settles successfully |
-| `onError(fn)` | `(ctx, { setResult }) => void \| Promise<void>` | When an individual task throws |
+| Stage | Level | Runs | API |
+|---|---|---|---|
+| `before(type, fn)` | Batch | Once, before any task starts | `throwError` (intercept mode) |
+| `after(type, fn)` | Batch | Once, after every task has settled | `setResult`, `throwError` (intercept mode) |
+| `onResult(type, fn)` | Batch | Once, right before returning the final result | `setResult`, `throwError` (intercept mode) |
+| `beforeEach(fn)` | Per-task | Before each individual task is invoked | — |
+| `afterEach(fn)` | Per-task | After a task settles successfully | — |
+| `onErrorEach(fn)` | Per-task | When an individual task throws | `setResult` |
 
 ```ts
 .middlewares(m => m
-  .onError(async (ctx, api) => {
+  .before("fluent", (ctx) => { console.log("starting batch"); })
+  .onResult("intercept", async (ctx, api) => {
+    if (ctx.result.length === 0) api.throwError(new Error("nothing succeeded"));
+    return ctx;
+  })
+  .onErrorEach(async (ctx, api) => {
     console.error(ctx.error);
     api.setResult(null); // recover instead of letting this task register as failed
   })
 )
 ```
 
+Batch-level fluent signatures: `before`/`after` take `(ctx) => void`, `onResult` takes `(res) => newRes`. Per-task hooks (`beforeEach`, `afterEach`, `onErrorEach`) are always plain functions — there's no fluent/intercept split for these, since they observe/mutate a single task's context rather than the pipeline's control flow.
+
 ---
 
 ## Plugins
 
 ```ts
-export type VigorPlugin<O> = {
-  options: O // type-only anchor for inferring O — not used at runtime
-  func: (v: typeof vigor, options: O) => void
+export type VigorPlugin<
+  O extends Record<string, any> = {},
+  Ext extends Record<string, any> = Record<string, any>
+> = {
+  options: O
+  func: (v: VigorInstance, options: O) => Ext
 }
 
 vigor.use(plugin, options?)
 ```
 
-`vigor.use(plugin, options)` simply invokes `plugin.func(vigor, options)` — a lightweight hook for setup-time side effects (e.g. registering shared config, wiring up logging) rather than a full plugin/extension system.
+`plugin.func` receives the current `vigor` instance (read-only — plugins never mutate it, e.g. they might read it to wrap an existing method) and returns `Ext`, a set of properties to merge in. `vigor.use()` shallow-clones `vigor` (including its nested `builders` groups) and merges `Ext` on top, returning a **new** instance — `VigorInstance & Ext` — leaving the original `vigor` untouched.
+
+```ts
+const loggingPlugin: VigorPlugin<{ prefix?: string }> = {
+  options: {},
+  func: (v, options) => ({
+    fetch: (origin?: string) => v.fetch(origin).middlewares(m => m
+      .before("fluent", (ctx) => console.log(options.prefix ?? "[vigor]", ctx.href))
+    ),
+  }),
+};
+
+const myVigor = vigor.use(loggingPlugin, { prefix: "[api]" });
+```
 
 ---
 
@@ -469,3 +543,4 @@ if (!res.success) {
 - Every builder is **immutable** — `.settings(...)`, `.path(...)`, etc. all return a *new* instance with the change merged in; the original is untouched.
 - Array-valued config (`path`, `query`, parse `strategies`, etc.) **concatenates** across calls by default; object-valued config deep-merges. A handful of methods (`hash`, `headers("overwrite", ...)`, `body("overwrite", ...)`, `options("overwrite", ...)`, `retry(...)`, `parse(...)`, `algorithms(...)`) force a full **replace** instead, since merging wouldn't make sense there.
 - Config shape is tracked through the whole chain via TypeScript generics, so `.settings()`/`.middlewares()` callbacks and `.request()`'s inferred return type stay accurate as you chain.
+- `.cast<T>()` is available on every module (`fetch`, `retry`, `parse`, `all`) and always wins over the naturally-inferred type, regardless of where in the chain it's called.

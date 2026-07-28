@@ -1,10 +1,10 @@
-import { createBrand, VigorBrand } from "@core/symbol"
+import { createBrand, VigorBrand, VigorExcludeDefault } from "@core/symbol"
 import { VigorParseBase, VigorParseSchema } from "./main"
 import { VigorStatus } from "@core/status"
 import { VigorParsePolicyMiddlewaresTypeLambda } from "./TL"
 import { VigorApply } from "@core/HKT"
-import { VigorDeepMerge } from "@core/types"
-import type { VigorParseContextSchema, VigorParseBeforeContextSchema, VigorParseAfterContextSchema } from "./context"
+import { VigorCastResult, VigorDeepMerge } from "@core/types"
+import type { VigorParseContextSchema, VigorParseBeforeContextSchema, VigorParseAfterContextSchema, VigorParseOnResultContextSchema } from "./context"
 
 export type VigorParsePolicyMiddlewaresSchema<
     T extends VigorParseSchema<T>
@@ -33,7 +33,7 @@ export type VigorParsePolicyMiddlewaresFluent<
 
     before: { _mode: "fluent", func: (ctx: VigorParseBeforeContextSchema<T>) => void }
     after: { _mode: "fluent", func: (ctx: VigorParseAfterContextSchema<T>) => void }
-    onResult: { _mode: "fluent", func: (res: VigorParseAfterContextSchema<T>["result"]) => VigorParseContextSchema<any>["result"] }
+    onResult: { _mode: "fluent", func: (res: VigorParseOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorParseContextSchema<any>["result"] }
     onError: { _mode: "fluent", func: (err: VigorParseContextSchema<T>["error"]) => void }
 }
 
@@ -53,7 +53,7 @@ export type VigorParsePolicyMiddlewaresIntercept<
 
     before: { _mode: "intercept", func: (ctx: VigorParseBeforeContextSchema<T>, api: Pick<VigorParsePolicyMiddlewaresApi<T>, "throwError">) => VigorParseContextSchema<any> | Promise<VigorParseContextSchema<any>> }
     after: { _mode: "intercept", func: (ctx: VigorParseAfterContextSchema<T>, api: Pick<VigorParsePolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorParseContextSchema<any> | Promise<VigorParseContextSchema<any>> }
-    onResult: { _mode: "intercept", func: (ctx: VigorParseAfterContextSchema<T>, api: Pick<VigorParsePolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorParseContextSchema<any> | Promise<VigorParseContextSchema<any>> }
+    onResult: { _mode: "intercept", func: (ctx: VigorParseOnResultContextSchema<T>, api: Pick<VigorParsePolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorParseContextSchema<any> | Promise<VigorParseContextSchema<any>> }
     onError: { _mode: "intercept", func: (ctx: VigorParseContextSchema<T>, api: Pick<VigorParsePolicyMiddlewaresApi<T>, "setResult"|"throwError"|"proceedRestart"|"cancelRestart">) => VigorParseContextSchema<any> | Promise<VigorParseContextSchema<any>> }
 }
 
@@ -118,3 +118,52 @@ export class VigorParsePolicyMiddlewares<
         return this._next({ policy: { middlewares: { onError: [{ _mode: type, func }] } } } as const)
     }
 }
+
+export type VigorParsePipeInitialContext<
+    T extends VigorParseSchema<T>,
+    R = T["policy"]["settings"]["raw"] extends true
+        ? VigorExcludeDefault<T["policy"]["target"]>
+        : VigorCastResult<T["cast"], unknown>
+> = VigorDeepMerge<Omit<VigorParseContextSchema<T, unknown>, "result">, { result: R }>
+
+export type VigorParsePipeStepVoid<
+    Ctx,
+    Arr
+> = Arr extends [infer Head, ...infer Tail]
+    ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
+        ? VigorParsePipeStepVoid<Ret, Tail>
+        : VigorParsePipeStepVoid<Ctx, Tail>
+    : Ctx
+
+export type VigorParsePipeStepResult<
+    Ctx,
+    Arr
+> = Arr extends [infer Head, ...infer Tail]
+    ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
+        ? VigorParsePipeStepResult<Ret, Tail>
+        : Head extends { _mode: "fluent", func: (...args: any[]) => infer FR }
+            ? VigorParsePipeStepResult<VigorDeepMerge<Ctx, { result: FR }>, Tail>
+            : VigorParsePipeStepResult<Ctx, Tail>
+    : Ctx
+
+export type VigorParsePolicyMiddlewaresPipe<
+    T extends VigorParseSchema<T>
+> = VigorParsePipeStepVoid<
+    VigorParsePipeStepResult<
+        VigorParsePipeStepResult<
+            VigorParsePipeStepVoid<
+                VigorParsePipeInitialContext<T>,
+                T["policy"]["middlewares"]["before"]
+            >,
+            T["policy"]["middlewares"]["after"]
+        >,
+        T["policy"]["middlewares"]["onResult"]
+    >,
+    T["policy"]["middlewares"]["onError"]
+>
+
+export type VigorParsePipeResult<
+    T extends VigorParseSchema<T>
+> = VigorParsePolicyMiddlewaresPipe<T> extends { result: infer R }
+    ? R
+    : never

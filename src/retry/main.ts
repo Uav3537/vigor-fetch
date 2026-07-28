@@ -1,12 +1,12 @@
-import { createBrand, isVigorEmpty, VigorBrand, VigorCastPlaceholder, VigorEmpty, VigorExcludeEmpty } from "@core/symbol"
+import { createBrand, isVigorEmpty, VigorBrand, VigorCastPlaceholder, VigorEmpty, VigorExcludeDefault, VigorExcludeEmpty } from "@core/symbol"
 import { VigorRetryContextBase, VigorRetryContextSchema } from "./context"
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorRetryTypeLambda } from "./TL"
 import { VigorRetryPolicySettings, VigorRetryPolicySettingsSchema } from "./settings"
-import { VigorCastResult, VigorDeepPartial } from "@core/types"
+import { VigorDeepMerge, VigorDeepPartial } from "@core/types"
 import { VigorRetryPolicyMiddlewares, VigorRetryPolicyMiddlewaresApi, VigorRetryPolicyMiddlewaresSchema } from "./middlewares"
-import { VigorRetryPolicyAlgorithms, VigorRetryPolicyAlgorithmsConstant, VigorRetryPolicyAlgorithmsSchema } from "./algorithms"
+import { VigorRetryPolicyAlgorithms, VigorRetryPolicyAlgorithmsSchema } from "./algorithms"
 import { VigorRetryError } from "./error"
 import { VigorRetryPolicyBase, VigorRetryPolicySchema } from "./policy"
 
@@ -60,14 +60,15 @@ export class VigorRetry<
     }
     /** Configures the retry policy's general settings (max attempts, timeout, etc). */
     public settings<
-        const N extends VigorDeepPartial<VigorRetryPolicySettingsSchema<T>>,
-        R extends VigorRetrySchema<any>
-    >(
-        input:
-            | N
-            | ((s: VigorRetryPolicySettings<T>) => VigorRetryPolicySettings<R>)
-            | VigorRetryPolicySettings<R>
-    ) {
+        const N extends VigorDeepPartial<VigorRetryPolicySettingsSchema<T>>
+    >(input: N): VigorApply<VigorRetryTypeLambda, VigorDeepMerge<T, { policy: { settings: N } }>>
+    public settings<
+        const R extends VigorRetrySchema<any>
+    >(input: (s: VigorRetryPolicySettings<T>) => VigorRetryPolicySettings<R>): VigorApply<VigorRetryTypeLambda, VigorDeepMerge<T, { policy: { settings: R["policy"]["settings"] } }>>
+    public settings<
+        const R extends VigorRetrySchema<any>
+    >(input: VigorRetryPolicySettings<R>): VigorApply<VigorRetryTypeLambda, VigorDeepMerge<T, { policy: { settings: R["policy"]["settings"] } }>>
+    public settings(input: any): any {
         if (typeof input === 'function' || input instanceof VigorRetryPolicySettings) {
             const result = typeof input === 'function'
                 ? input(new VigorRetryPolicySettings<T>())
@@ -83,14 +84,15 @@ export class VigorRetry<
     }
     /** Configures the retry policy's middleware pipeline. */
     public middlewares<
-        const N extends VigorDeepPartial<VigorRetryPolicyMiddlewaresSchema<T>>,
-        R extends VigorRetrySchema<any>
-    >(
-        input:
-            | N
-            | ((s: VigorRetryPolicyMiddlewares<T>) => VigorRetryPolicyMiddlewares<R>)
-            | VigorRetryPolicyMiddlewares<R>
-    ) {
+        const N extends VigorDeepPartial<VigorRetryPolicyMiddlewaresSchema<T>>
+    >(input: N): VigorApply<VigorRetryTypeLambda, VigorDeepMerge<T, { policy: { middlewares: N } }>>
+    public middlewares<
+        const R extends VigorRetrySchema<any>
+    >(input: (s: VigorRetryPolicyMiddlewares<T>) => VigorRetryPolicyMiddlewares<R>): VigorApply<VigorRetryTypeLambda, VigorDeepMerge<T, { policy: { middlewares: R["policy"]["middlewares"] } }>>
+    public middlewares<
+        const R extends VigorRetrySchema<any>
+    >(input: VigorRetryPolicyMiddlewares<R>): VigorApply<VigorRetryTypeLambda, VigorDeepMerge<T, { policy: { middlewares: R["policy"]["middlewares"] } }>>
+    public middlewares(input: any): any {
         if (typeof input === 'function' || input instanceof VigorRetryPolicyMiddlewares) {
             const result = typeof input === 'function'
                 ? input(new VigorRetryPolicyMiddlewares<T>())
@@ -106,13 +108,12 @@ export class VigorRetry<
     }
     /** Configures the retry policy's delay algorithm. */
     public algorithms<
-        const N extends VigorDeepPartial<VigorRetryPolicyAlgorithmsSchema<T>>,
-        R extends VigorRetrySchema<any>
-    >(
-        input:
-            | N
-            | ((a: VigorRetryPolicyAlgorithms<T>) => VigorRetryPolicyAlgorithms<R> | VigorRetryPolicyAlgorithmsConstant<any>)
-    ) {
+        const N extends VigorDeepPartial<VigorRetryPolicyAlgorithmsSchema<T>>
+    >(input: N): VigorApply<VigorRetryTypeLambda, VigorDeepMerge<T, { policy: { algorithms: N } }>>
+    public algorithms<
+        const R extends VigorRetrySchema<any>
+    >(input: (a: VigorRetryPolicyAlgorithms<T>) => VigorRetryPolicyAlgorithms<R>): VigorApply<VigorRetryTypeLambda, VigorDeepMerge<T, { policy: { algorithms: R["policy"]["algorithms"] } }>>
+    public algorithms(input: any): any {
         if (typeof input === 'function') {
             const result = input(new VigorRetryPolicyAlgorithms<T>())
             const algoSlice = (result as any).config.policy.algorithms
@@ -138,13 +139,13 @@ export class VigorRetry<
         )
     }
     /** Runs the target and returns its result directly, throwing on final failure. */
-    public async request<R = VigorCastResult<T["cast"], VigorRetryContextSchema<T>["result"]>>() {
+    public async request<R = VigorExcludeDefault<VigorRetryContextSchema<T>["result"]>>() {
         const res = await this.requestVerbose<R>()
         if(res.success) return res.data
         throw res.error
     }
     /** Runs the target and returns a result/error envelope instead of throwing. */
-    public async requestVerbose<R = VigorCastResult<T["cast"], VigorRetryContextSchema<T>["result"]>>() {
+    public async requestVerbose<R = VigorExcludeDefault<VigorRetryContextSchema<T>["result"]>>() {
         return await this.requestRuntime<R>()
     }
     /** Internal execution loop implementing the attempt/retry/restart lifecycle. */

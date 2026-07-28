@@ -1,7 +1,7 @@
 import { createBrand, VigorBrand, VigorDefault, VigorDefaultType } from "@core/symbol"
 import { VigorRetryPolicyBase } from "./policy"
 import type { VigorRetrySchema } from "./main"
-import type { VigorRetryPipeInitialContext, VigorRetryPipeResult } from "./middlewares"
+import type { VigorRetryPipeInitialContext, VigorRetryPipeResult, VigorRetryPipeStepVoid, VigorRetryPipeStepResult } from "./middlewares"
 
 /**
  * Base shape shared by every retry context variant. `R` is the type of
@@ -37,10 +37,24 @@ export type VigorRetryBeforeContextSchema<
     T extends VigorRetrySchema<T>
 > = VigorRetryContextSchema<T, VigorDefaultType>
 
-/** Context shape seen by `after` / `onResult` middlewares — the target has settled. */
+/** Context shape seen by `after` middlewares — reflects the result after `before` has run. */
 export type VigorRetryAfterContextSchema<
     T extends VigorRetrySchema<T>
-> = VigorRetryContextSchema<T, VigorRetryPipeInitialContext<T>["result"]>
+> = VigorRetryPipeStepResult<
+    VigorRetryPipeStepVoid<
+        VigorRetryPipeInitialContext<T>,
+        T["policy"]["middlewares"]["before"]
+    >,
+    T["policy"]["middlewares"]["after"]
+>
+
+/** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
+export type VigorRetryOnResultContextSchema<
+    T extends VigorRetrySchema<T>
+> = VigorRetryPipeStepResult<
+    VigorRetryAfterContextSchema<T>,
+    T["policy"]["middlewares"]["onResult"]
+>
 
 /** Context shape once the full middleware pipeline (including `onResult`) has run. */
 export type VigorRetryResultContextSchema<

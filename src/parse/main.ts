@@ -1,10 +1,10 @@
-import { createBrand, isVigorDefault, isVigorEmpty, VigorBrand, VigorCastPlaceholder, VigorEmpty, VigorExcludeEmpty } from "@core/symbol"
+import { createBrand, isVigorDefault, isVigorEmpty, VigorBrand, VigorCastPlaceholder, VigorEmpty, VigorExcludeDefault, VigorExcludeEmpty } from "@core/symbol"
 import { VigorParseContextBase, VigorParseContextSchema } from "./context"
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorParseTypeLambda } from "./TL"
 import { VigorParsePolicySettings, VigorParsePolicySettingsSchema } from "./settings"
-import { VigorCastResult, VigorDeepPartial } from "@core/types"
+import { VigorDeepMerge, VigorDeepPartial } from "@core/types"
 import { VigorParsePolicyMiddlewares, VigorParsePolicyMiddlewaresApi, VigorParsePolicyMiddlewaresSchema } from "./middlewares"
 import { VigorParsePolicyStrategies, VigorParsePolicyStrategiesSchema, VigorParseContentTypeStrategy } from "./strategies"
 import { VigorParseError } from "./error"
@@ -52,14 +52,15 @@ export class VigorParse<
     }
     /** Configures the parse policy's general settings. */
     public settings<
-        const N extends VigorDeepPartial<VigorParsePolicySettingsSchema<T>>,
-        R extends VigorParseSchema<any>
-    >(
-        input:
-            | N
-            | ((s: VigorParsePolicySettings<T>) => VigorParsePolicySettings<R>)
-            | VigorParsePolicySettings<R>
-    ) {
+        const N extends VigorDeepPartial<VigorParsePolicySettingsSchema<T>>
+    >(input: N): VigorApply<VigorParseTypeLambda, VigorDeepMerge<T, { policy: { settings: N } }>>
+    public settings<
+        const R extends VigorParseSchema<any>
+    >(input: (s: VigorParsePolicySettings<T>) => VigorParsePolicySettings<R>): VigorApply<VigorParseTypeLambda, VigorDeepMerge<T, { policy: { settings: R["policy"]["settings"] } }>>
+    public settings<
+        const R extends VigorParseSchema<any>
+    >(input: VigorParsePolicySettings<R>): VigorApply<VigorParseTypeLambda, VigorDeepMerge<T, { policy: { settings: R["policy"]["settings"] } }>>
+    public settings(input: any): any {
         if (typeof input === 'function' || input instanceof VigorParsePolicySettings) {
             const result = typeof input === 'function'
                 ? input(new VigorParsePolicySettings<T>())
@@ -72,14 +73,15 @@ export class VigorParse<
     }
     /** Configures the parse policy's middleware pipeline. */
     public middlewares<
-        const N extends VigorDeepPartial<VigorParsePolicyMiddlewaresSchema<T>>,
-        R extends VigorParseSchema<any>
-    >(
-        input:
-            | N
-            | ((s: VigorParsePolicyMiddlewares<T>) => VigorParsePolicyMiddlewares<R>)
-            | VigorParsePolicyMiddlewares<R>
-    ) {
+        const N extends VigorDeepPartial<VigorParsePolicyMiddlewaresSchema<T>>
+    >(input: N): VigorApply<VigorParseTypeLambda, VigorDeepMerge<T, { policy: { middlewares: N } }>>
+    public middlewares<
+        const R extends VigorParseSchema<any>
+    >(input: (s: VigorParsePolicyMiddlewares<T>) => VigorParsePolicyMiddlewares<R>): VigorApply<VigorParseTypeLambda, VigorDeepMerge<T, { policy: { middlewares: R["policy"]["middlewares"] } }>>
+    public middlewares<
+        const R extends VigorParseSchema<any>
+    >(input: VigorParsePolicyMiddlewares<R>): VigorApply<VigorParseTypeLambda, VigorDeepMerge<T, { policy: { middlewares: R["policy"]["middlewares"] } }>>
+    public middlewares(input: any): any {
         if (typeof input === 'function' || input instanceof VigorParsePolicyMiddlewares) {
             const result = typeof input === 'function'
                 ? input(new VigorParsePolicyMiddlewares<T>())
@@ -92,14 +94,15 @@ export class VigorParse<
     }
     /** Configures the parse policy's fallback chain of parsing strategies. */
     public strategies<
-        const N extends VigorDeepPartial<VigorParsePolicyStrategiesSchema<T>>,
-        R extends VigorParseSchema<any>
-    >(
-        input:
-            | N
-            | ((s: VigorParsePolicyStrategies<T>) => VigorParsePolicyStrategies<R>)
-            | VigorParsePolicyStrategies<R>
-    ) {
+        const N extends VigorDeepPartial<VigorParsePolicyStrategiesSchema<T>>
+    >(input: N): VigorApply<VigorParseTypeLambda, VigorDeepMerge<T, { policy: { strategies: N } }>>
+    public strategies<
+        const R extends VigorParseSchema<any>
+    >(input: (s: VigorParsePolicyStrategies<T>) => VigorParsePolicyStrategies<R>): VigorApply<VigorParseTypeLambda, VigorDeepMerge<T, { policy: { strategies: R["policy"]["strategies"] } }>>
+    public strategies<
+        const R extends VigorParseSchema<any>
+    >(input: VigorParsePolicyStrategies<R>): VigorApply<VigorParseTypeLambda, VigorDeepMerge<T, { policy: { strategies: R["policy"]["strategies"] } }>>
+    public strategies(input: any): any {
         if (typeof input === 'function' || input instanceof VigorParsePolicyStrategies) {
             const result = typeof input === 'function'
                 ? input(new VigorParsePolicyStrategies<T>())
@@ -124,13 +127,13 @@ export class VigorParse<
         )
     }
     /** Runs parsing and returns the result directly, throwing on final failure. */
-    public async request<R = VigorCastResult<T["cast"], VigorParseContextSchema<T>["result"]>>() {
+    public async request<R = VigorExcludeDefault<VigorParseContextSchema<T>["result"]>>() {
         const res = await this.requestVerbose<R>()
         if(res.success) return res.data
         throw res.error
     }
     /** Runs parsing and returns a result/error envelope instead of throwing. */
-    public async requestVerbose<R = VigorCastResult<T["cast"], VigorParseContextSchema<T>["result"]>>() {
+    public async requestVerbose<R = VigorExcludeDefault<VigorParseContextSchema<T>["result"]>>() {
         return await this.requestRuntime<R>()
     }
     /** Internal execution loop implementing the strategy fallback and restart handling. */
@@ -165,11 +168,10 @@ export class VigorParse<
                 }
             }
 
-            const response = ctx.response as Response
-
             if (ctx.policy.settings.raw) {
-                ctx.result = response
+                (ctx as any).result = ctx.response
             } else {
+                const response = ctx.response as Response
                 const funcs = ctx.policy.strategies.funcs.length > 0
                     ? ctx.policy.strategies.funcs
                     : [VigorParseContentTypeStrategy]
