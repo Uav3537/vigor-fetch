@@ -144,10 +144,9 @@ export class VigorParse<
         {success: false, data: null, error: unknown}
     > {
         const config = this._merge(this.config, {}) as VigorParseSchema<T>
-        let ctx: VigorParseContextSchema<T> = {
-            ...VigorParseContextBase,
+        let ctx: VigorParseContextSchema<T> = this._merge(VigorParseContextBase, {
             policy: config.policy
-        } as VigorParseContextSchema<T>
+        })
 
         if (isVigorDefault(ctx.policy.target)) throw new VigorParseError("VALUE_REQUIRED", {
             method: "request",
@@ -241,7 +240,8 @@ export class VigorParse<
                     data: {
                         maxAttempts: ctx.policy.settings.maxRestarts,
                         error: ctx.error
-                    }
+                    },
+                    context: ctx
                 })
                 return await this.requestRuntime<R>(restartAttempt + 1)
             }

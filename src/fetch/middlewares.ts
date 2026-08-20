@@ -32,10 +32,10 @@ export type VigorFetchPolicyMiddlewaresFluent<
 > = {
     __brand: VigorBrand<"Fetch", "Policy<Middlewares<Fluent<Schema">
 
-    before: { _mode: "fluent", func: (ctx: VigorFetchBeforeContextSchema<T>) => void }
-    after: { _mode: "fluent", func: (ctx: VigorFetchAfterContextSchema<T>) => void }
-    onResult: { _mode: "fluent", func: (res: VigorFetchOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorFetchContextSchema<any>["result"] }
-    onError: { _mode: "fluent", func: (err: VigorFetchContextSchema<T>["error"]) => void }
+    before: { _mode: "fluent", func: (ctx: VigorFetchBeforeContextSchema<T>) => void|Promise<void> }
+    after: { _mode: "fluent", func: (ctx: VigorFetchAfterContextSchema<T>) => void|Promise<void> }
+    onResult: { _mode: "fluent", func: (res: VigorFetchOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorFetchContextSchema<any>["result"]|Promise<VigorFetchContextSchema<any>["result"]> }
+    onError: { _mode: "fluent", func: (err: VigorFetchContextSchema<T>["error"]) => void|Promise<void> }
 }
 
 export type VigorFetchPolicyMiddlewaresApi<

@@ -294,17 +294,17 @@ export class VigorFetch<
         {success: false, data: null, error: unknown}
     > {
         const config = this._merge(this.config, {}) as VigorFetchSchema<T>
-        let ctx: VigorFetchContextSchema<T> = {
-            ...VigorFetchContextBase,
+        let ctx: VigorFetchContextSchema<T> = this._merge(VigorFetchContextBase, {
             policy: config.policy
-        } as VigorFetchContextSchema<T>
+        })
 
         const throwError: VigorFetchPolicyMiddlewaresApi<T>["throwError"] = (err) => { throw err }
 
         try {
             if (isVigorEmpty(ctx.policy.origin)) throw new VigorFetchError("VALUE_REQUIRED", {
                 method: "request",
-                data: { key: "origin" }
+                data: { key: "origin" },
+                context: ctx
             })
 
             ctx.href = this._buildUrl(ctx.policy.origin, ctx.policy.path, ctx.policy.query, ctx.policy.hash)
@@ -451,7 +451,8 @@ export class VigorFetch<
                     data: {
                         maxAttempts: ctx.policy.settings.maxRestarts,
                         error: ctx.error
-                    }
+                    },
+                    context: ctx
                 })
                 return await this.requestRuntime<R>(restartAttempt + 1)
             }

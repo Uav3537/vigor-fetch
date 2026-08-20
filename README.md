@@ -90,7 +90,7 @@ const results = await vigor
 ```ts
 vigor.fetch(origin?)   // -> VigorFetch, origin pre-set if given
 vigor.retry(task?)     // -> VigorRetry, target pre-set if given
-vigor.parse(response?) // -> VigorParse, target pre-set if given
+vigor.parse(request|response?) // -> VigorParse, target pre-set if given
 vigor.all(...tasks)    // -> VigorAll, target pre-set if any tasks given
 vigor.use(plugin, options?)
 vigor.builders         // direct access to each module's sub-builders
@@ -147,7 +147,7 @@ This is equivalent to `new VigorFetchPolicySettings()` etc., just namespaced und
 | `settings(fn \| config)` | Configures fetch-level settings (below) |
 | `middlewares(fn \| config)` | Configures the fetch middleware pipeline (below) |
 | `retry(fn \| config \| VigorRetry)` | Configures the **internal retry engine** used to send the request |
-| `parse(fn \| config \| VigorParse)` | Configures the **internal parse engine** used to interpret the response |
+| `parse(fn \| config \| VigorParse)` | Configures the **internal parse engine** used to interpret the request or response |
 | `cast<T>()` | Overrides the inferred result type with `T` |
 | `request()` | Executes and returns the parsed result, throwing on failure |
 | `requestVerbose()` | Executes and returns `{ success, data, error }` |
@@ -347,7 +347,7 @@ There are two independent resilience layers here:
 
 | Method | Description |
 |---|---|
-| `target(response)` | Sets the `Response` to parse |
+| `target(request\|response)` | Sets the `Request\|Response` to parse |
 | `settings(fn \| config)` | General settings (below) |
 | `middlewares(fn \| config)` | Middleware pipeline (below) |
 | `strategies(fn \| config)` | Configures the ordered fallback chain of parsing strategies |
@@ -358,13 +358,13 @@ There are two independent resilience layers here:
 
 | Method | Description | Default |
 |---|---|---|
-| `raw(bool)` | When `true`, skips parsing entirely and returns the raw `Response` object | `false` |
+| `raw(bool)` | When `true`, skips parsing entirely and returns the raw `Request\|Response` object | `false` |
 | `default(fn)` | Fallback value/factory when parsing ultimately fails | throws |
 | `maxRestarts(num)` | Max full pipeline restarts | `3` |
 
 ### strategies
 
-Strategies form an ordered list that's tried in sequence until one succeeds (each attempt but the last clones the response first, so a failed strategy doesn't consume the body). If you never configure any, Vigor defaults to content-type detection.
+Strategies form an ordered list that's tried in sequence until one succeeds (each attempt but the last clones the request|response first, so a failed strategy doesn't consume the body). If you never configure any, Vigor defaults to content-type detection.
 
 ```ts
 .strategies(s => s.sniff())
@@ -372,7 +372,7 @@ Strategies form an ordered list that's tried in sequence until one succeeds (eac
 
 | Method | Behavior |
 |---|---|
-| `contentType(replace?)` | Parses based on the response's `Content-Type` header (JSON / XML / form-urlencoded / octet-stream / image / audio / video / multipart / text) |
+| `contentType(replace?)` | Parses based on the request|response's `Content-Type` header (JSON / XML / form-urlencoded / octet-stream / image / audio / video / multipart / text) |
 | `sniff(replace?)` | Tries `json → formData → text → blob` in order until one parses |
 | `json(replace?)` | Always parses as JSON |
 | `text(replace?)` | Always parses as text |
@@ -380,7 +380,7 @@ Strategies form an ordered list that's tried in sequence until one succeeds (eac
 | `blob(replace?)` | Always parses as `Blob` |
 | `bytes(replace?)` | Always parses as `Uint8Array` |
 | `formData(replace?)` | Always parses as `FormData` |
-| `custom(func, replace?)` | Uses a custom `(response: Response) => Promise<any>` |
+| `custom(func, replace?)` | Uses a custom `(request\|response: Request\|Response) => Promise<any>` |
 
 By default each call **appends** to the chain (they concatenate, so you can layer fallbacks: e.g. `contentType()` then `sniff()` as a last resort). Pass `replace: true` as the trailing argument to replace the whole chain instead.
 

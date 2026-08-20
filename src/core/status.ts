@@ -62,8 +62,18 @@ export abstract class VigorStatus<
             typeof v === "object" &&
             Object.getPrototypeOf(v) === Object.prototype
 
+        const deepClone = (v: unknown): unknown => {
+            if (Array.isArray(v)) return v.map(deepClone)
+            if (isObj(v)) {
+                const r: Record<string, unknown> = {}
+                for (const k of Object.keys(v)) r[k] = deepClone(v[k])
+                return r
+            }
+            return v   // primitive, symbol(VigorDefault 등), class instance, Response 등은 그대로
+        }
+
         const merge = (a: unknown, b: unknown, s: unknown): unknown => {
-            if (b === undefined || b === null) return a
+            if (b === undefined || b === null) return deepClone(a)   // ✅ 클론해서 반환
 
             if (s === "replace") return b
 
@@ -72,9 +82,10 @@ export abstract class VigorStatus<
             }
 
             if (isObj(a) && isObj(b)) {
-                const r: Record<string, unknown> = { ...a }
+                const r: Record<string, unknown> = {}
                 const sObj = isObj(s) ? s : undefined
-                for (const k of Object.keys(b)) {
+                const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+                for (const k of keys) {
                     r[k] = merge((a as any)[k], (b as any)[k], sObj?.[k])
                 }
                 return r

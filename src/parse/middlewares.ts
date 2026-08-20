@@ -31,10 +31,10 @@ export type VigorParsePolicyMiddlewaresFluent<
 > = {
     __brand: VigorBrand<"Parse", "Policy<Middlewares<Fluent<Schema">
 
-    before: { _mode: "fluent", func: (ctx: VigorParseBeforeContextSchema<T>) => void }
-    after: { _mode: "fluent", func: (ctx: VigorParseAfterContextSchema<T>) => void }
-    onResult: { _mode: "fluent", func: (res: VigorParseOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorParseContextSchema<any>["result"] }
-    onError: { _mode: "fluent", func: (err: VigorParseContextSchema<T>["error"]) => void }
+    before: { _mode: "fluent", func: (ctx: VigorParseBeforeContextSchema<T>) => void|Promise<void> }
+    after: { _mode: "fluent", func: (ctx: VigorParseAfterContextSchema<T>) => void|Promise<void> }
+    onResult: { _mode: "fluent", func: (res: VigorParseOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorParseContextSchema<any>["result"]|Promise<VigorParseContextSchema<any>["result"]> }
+    onError: { _mode: "fluent", func: (err: VigorParseContextSchema<T>["error"]) => void|Promise<void> }
 }
 
 export type VigorParsePolicyMiddlewaresApi<

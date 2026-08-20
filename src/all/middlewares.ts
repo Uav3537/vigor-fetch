@@ -53,9 +53,9 @@ export type VigorAllPolicyMiddlewaresFluent<
 > = {
     __brand: VigorBrand<"All", "Policy<Middlewares<Fluent<Schema">
 
-    before: { _mode: "fluent", func: (ctx: VigorAllBeforeContextSchema<T>) => void }
-    after: { _mode: "fluent", func: (ctx: VigorAllAfterContextSchema<T>) => void }
-    onResult: { _mode: "fluent", func: (res: VigorAllOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorAllContextSchema<any>["result"] }
+    before: { _mode: "fluent", func: (ctx: VigorAllBeforeContextSchema<T>) => void|Promise<void> }
+    after: { _mode: "fluent", func: (ctx: VigorAllAfterContextSchema<T>) => void|Promise<void> }
+    onResult: { _mode: "fluent", func: (res: VigorAllOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorAllContextSchema<any>["result"]|Promise<VigorAllContextSchema<any>["result"]> }
 }
 
 export type VigorAllPolicyMiddlewaresApi<

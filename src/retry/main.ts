@@ -156,10 +156,9 @@ export class VigorRetry<
         {success: false, data: null, error: unknown}
     > {
         const config = this._merge(this.config, {}) as VigorRetrySchema<T>
-        let ctx: VigorRetryContextSchema<T> = {
-            ...VigorRetryContextBase,
+        let ctx: VigorRetryContextSchema<T> = this._merge(VigorRetryContextBase, {
             policy: config.policy
-        } as VigorRetryContextSchema<T>
+        }) as VigorRetryContextSchema<T>
         if(isVigorEmpty(ctx.policy.target)) throw new VigorRetryError("VALUE_REQUIRED", {
             method: "request",
             data: {
@@ -221,7 +220,8 @@ export class VigorRetry<
                             method: "request",
                             data: {
                                 limit: ctx.policy.settings.timeout
-                            }
+                            },
+                            context: ctx
                         })), ctx.policy.settings.timeout)
 
                         ctx.result = await Promise.race([
@@ -312,7 +312,8 @@ export class VigorRetry<
                 data: {
                     maxAttempts: ctx.policy.settings.maxAttempts,
                     error: ctx.error
-                }
+                },
+                context: ctx
             })
         } catch(error) {
             ctx.error = error

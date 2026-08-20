@@ -1,6 +1,6 @@
 {
   "name": "vigor-fetch",
-  "version": "4.0.9",
+  "version": "4.0.10",
   "description": "Smart, zero-dependency HTTP client with self-healing retries for rate-limited servers.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -42,7 +42,7 @@
   "author": "Uav1010",
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.17.0"
   },
   "devDependencies": {
     "tsup": "^8.5.1",

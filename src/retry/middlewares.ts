@@ -42,27 +42,27 @@ export type VigorRetryPolicyMiddlewaresFluent<
 
     before: {
         _mode: "fluent",
-        func: (ctx: VigorRetryBeforeContextSchema<T>) => void
+        func: (ctx: VigorRetryBeforeContextSchema<T>) => void|Promise<void>
     }
     after: {
         _mode: "fluent",
-        func: (ctx: VigorRetryAfterContextSchema<T>) => void
+        func: (ctx: VigorRetryAfterContextSchema<T>) => void|Promise<void>
     }
     onResult: {
         _mode: "fluent",
-        func: (res: VigorRetryOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorRetryContextSchema<any>["result"]
+        func: (res: VigorRetryOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorRetryContextSchema<any>["result"]|Promise<VigorRetryContextSchema<any>["result"]>
     }
     retryIf: {
         _mode: "fluent",
-        func: (err: VigorRetryContextSchema<T>["error"]) => VigorRetryContextSchema<any>["flags"]["doRetry"]
+        func: (err: VigorRetryContextSchema<T>["error"]) => VigorRetryContextSchema<any>["flags"]["doRetry"]|Promise<VigorRetryContextSchema<any>["flags"]["doRetry"]>
     }
     onRetry: {
         _mode: "fluent",
-        func: (err: VigorRetryContextSchema<T>["error"]) => void
+        func: (err: VigorRetryContextSchema<T>["error"]) => void|Promise<void>
     }
     onError: {
         _mode: "fluent",
-        func: (err: VigorRetryContextSchema<T>["error"]) => void
+        func: (err: VigorRetryContextSchema<T>["error"]) => void|Promise<void>
     }
 }
 

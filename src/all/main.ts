@@ -97,7 +97,7 @@ export class VigorAll<
         task: VigorAllTask,
         policy: VigorAllPolicySchema<any>
     ): Promise<{ success: true, value: unknown } | { success: false, value: unknown }> {
-        let ctx: VigorAllEachContextSchema<any> = { ...VigorAllEachContextBase }
+        let ctx: VigorAllEachContextSchema<any> = this._merge(VigorAllEachContextBase, {})
 
         try {
             for (const beforeEach of policy.middlewares.beforeEach) await beforeEach(ctx)
@@ -137,7 +137,6 @@ export class VigorAll<
     }
     /** Internal execution loop implementing the bounded-concurrency worker pool and the batch-level before/after/onResult pipeline. */
     private async requestRuntime<R = unknown>(
-        restartAttempt: number = 1
     ): Promise<
         {success: true, data: R, error: null} |
         {success: false, data: null, error: unknown}
@@ -145,14 +144,17 @@ export class VigorAll<
         const config = this._merge(this.config, {}) as VigorAllSchema<T>
         const policy = config.policy
 
-        let ctx: VigorAllContextSchema<any> = { ...VigorAllContextBase, policy }
+        let ctx: VigorAllContextSchema<any> = this._merge(VigorAllContextBase, {
+            policy
+        })
         const setResult = (r: unknown) => { ctx = { ...ctx, result: r } }
         const throwError = (err: unknown) => { throw err }
 
         try {
             if (policy.target.length === 0) throw new VigorAllError("EMPTY_TARGET", {
                 method: "request",
-                data: {}
+                data: {},
+                context: ctx
             })
 
             for (const mw of policy.middlewares.before) {
