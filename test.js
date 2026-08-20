@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import * as esm from "./dist/index.js";
-import * as cjs from "./dist/index.cjs";
+import * as esm from "./dist/index.mjs";
+import * as cjs from "./dist/index.js";
 
 const { vigor, VigorRetry, VigorFetchError, VigorRetryError } = esm;
 
