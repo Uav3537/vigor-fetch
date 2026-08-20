@@ -2,6 +2,7 @@ import { createBrand, VigorBrand, VigorDefault, VigorDefaultType } from "@core/s
 import { VigorAllPolicyBase } from "./policy"
 import type { VigorAllSchema } from "./main"
 import type { VigorAllPipeInitialContext, VigorAllPipeResult, VigorAllPipeStepVoid, VigorAllPipeStepResult } from "./middlewares"
+import type { VigorDeepMerge } from "@core/types"
 
 /**
  * Base shape shared by every batch-level `all` context variant. `R` is the
@@ -27,9 +28,14 @@ export type VigorAllBeforeContextSchema<
 /** Context shape seen by `after` middlewares — every task has settled, reflecting whatever `before` changed. */
 export type VigorAllAfterContextSchema<
     T extends VigorAllSchema<T>
-> = VigorAllPipeStepVoid<
-    VigorAllPipeInitialContext<T>,
-    T["policy"]["middlewares"]["before"]
+> = VigorDeepMerge<
+    VigorAllPipeStepVoid<
+        VigorAllPipeInitialContext<T>,
+        T["policy"]["middlewares"]["before"]
+    >,
+    // before -> 모든 태스크 실행 -> after 순서이므로, after 시작 시점의 result는
+    // before가 무엇을 리턴했든 실제 집계 결과 타입으로 재설정되어야 한다.
+    { result: VigorAllPipeInitialContext<T>["result"] }
 >
 
 /** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */

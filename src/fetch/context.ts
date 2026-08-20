@@ -2,6 +2,7 @@ import { createBrand, VigorBrand, VigorDefault, VigorDefaultType } from "@core/s
 import { VigorFetchPolicyBase } from "./policy"
 import type { VigorFetchSchema } from "./main"
 import { VigorFetchPipeInitialContext, VigorFetchPipeResult, VigorFetchPipeStepVoid, VigorFetchPipeStepResult } from "./middlewares"
+import type { VigorDeepMerge } from "@core/types"
 
 export type VigorFetchExtraOptions = Omit<RequestInit, "method" | "headers" | "body" | "signal">
 
@@ -45,9 +46,14 @@ export type VigorFetchBeforeContextSchema<
 export type VigorFetchAfterContextSchema<
     T extends VigorFetchSchema<T>
 > = VigorFetchPipeStepResult<
-    VigorFetchPipeStepVoid<
-        VigorFetchPipeInitialContext<T>,
-        T["policy"]["middlewares"]["before"]
+    VigorDeepMerge<
+        VigorFetchPipeStepVoid<
+            VigorFetchPipeInitialContext<T>,
+            T["policy"]["middlewares"]["before"]
+        >,
+        // before -> 실제 요청 실행 -> after 순서이므로, after 시작 시점의 result는
+        // before가 무엇을 리턴했든 실제 응답의 결과 타입으로 재설정되어야 한다.
+        { result: VigorFetchPipeInitialContext<T>["result"] }
     >,
     T["policy"]["middlewares"]["after"]
 >

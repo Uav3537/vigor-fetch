@@ -2,6 +2,7 @@ import { createBrand, VigorBrand, VigorDefault, VigorDefaultType } from "@core/s
 import { VigorRetryPolicyBase } from "./policy"
 import type { VigorRetrySchema } from "./main"
 import type { VigorRetryPipeInitialContext, VigorRetryPipeResult, VigorRetryPipeStepVoid, VigorRetryPipeStepResult } from "./middlewares"
+import type { VigorDeepMerge } from "@core/types"
 
 /**
  * Base shape shared by every retry context variant. `R` is the type of
@@ -41,9 +42,12 @@ export type VigorRetryBeforeContextSchema<
 export type VigorRetryAfterContextSchema<
     T extends VigorRetrySchema<T>
 > = VigorRetryPipeStepResult<
-    VigorRetryPipeStepVoid<
-        VigorRetryPipeInitialContext<T>,
-        T["policy"]["middlewares"]["before"]
+    VigorDeepMerge<
+        VigorRetryPipeStepVoid<
+            VigorRetryPipeInitialContext<T>,
+            T["policy"]["middlewares"]["before"]
+        >,
+        { result: VigorRetryPipeInitialContext<T>["result"] }
     >,
     T["policy"]["middlewares"]["after"]
 >
