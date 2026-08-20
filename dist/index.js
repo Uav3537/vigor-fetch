@@ -40,16 +40,26 @@ var VigorStatus = class {
    */
   _merge(source, target, strategy) {
     const isObj = (v) => v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype;
+    const deepClone = (v) => {
+      if (Array.isArray(v)) return v.map(deepClone);
+      if (isObj(v)) {
+        const r = {};
+        for (const k of Object.keys(v)) r[k] = deepClone(v[k]);
+        return r;
+      }
+      return v;
+    };
     const merge = (a, b, s) => {
-      if (b === void 0 || b === null) return a;
+      if (b === void 0 || b === null) return deepClone(a);
       if (s === "replace") return b;
       if (Array.isArray(a) && Array.isArray(b)) {
         return s === "replace" ? b : [...a, ...b];
       }
       if (isObj(a) && isObj(b)) {
-        const r = { ...a };
+        const r = {};
         const sObj = isObj(s) ? s : void 0;
-        for (const k of Object.keys(b)) {
+        const keys = /* @__PURE__ */ new Set([...Object.keys(a), ...Object.keys(b)]);
+        for (const k of keys) {
           r[k] = merge(a[k], b[k], sObj?.[k]);
         }
         return r;
@@ -232,7 +242,7 @@ var VigorAll = class _VigorAll extends VigorStatus {
   }
   /** Runs a single task through the beforeEach/afterEach/onErrorEach middleware pipeline. */
   async _runTask(task, policy) {
-    let ctx = { ...VigorAllEachContextBase };
+    let ctx = this._merge(VigorAllEachContextBase, {});
     try {
       for (const beforeEach of policy.middlewares.beforeEach) await beforeEach(ctx);
       ctx.result = await task();
@@ -272,10 +282,12 @@ var VigorAll = class _VigorAll extends VigorStatus {
     return await this.requestRuntime();
   }
   /** Internal execution loop implementing the bounded-concurrency worker pool and the batch-level before/after/onResult pipeline. */
-  async requestRuntime(restartAttempt = 1) {
+  async requestRuntime() {
     const config = this._merge(this.config, {});
     const policy = config.policy;
-    let ctx = { ...VigorAllContextBase, policy };
+    let ctx = this._merge(VigorAllContextBase, {
+      policy
+    });
     const setResult = (r) => {
       ctx = { ...ctx, result: r };
     };
@@ -285,7 +297,8 @@ var VigorAll = class _VigorAll extends VigorStatus {
     try {
       if (policy.target.length === 0) throw new VigorAllError("EMPTY_TARGET", {
         method: "request",
-        data: {}
+        data: {},
+        context: ctx
       });
       for (const mw of policy.middlewares.before) {
         if (mw._mode === "fluent") {
@@ -841,10 +854,9 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
   /** Internal execution loop implementing the attempt/retry/restart lifecycle. */
   async requestRuntime(restartAttempt = 1) {
     const config = this._merge(this.config, {});
-    let ctx = {
-      ...VigorRetryContextBase,
+    let ctx = this._merge(VigorRetryContextBase, {
       policy: config.policy
-    };
+    });
     if (isVigorEmpty(ctx.policy.target)) throw new VigorRetryError("VALUE_REQUIRED", {
       method: "request",
       data: {
@@ -898,7 +910,8 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
               method: "request",
               data: {
                 limit: ctx.policy.settings.timeout
-              }
+              },
+              context: ctx
             })), ctx.policy.settings.timeout);
             ctx.result = await Promise.race([
               target(mergedSignals),
@@ -980,7 +993,8 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
         data: {
           maxAttempts: ctx.policy.settings.maxAttempts,
           error: ctx.error
-        }
+        },
+        context: ctx
       });
     } catch (error) {
       ctx.error = error;
@@ -1320,10 +1334,9 @@ var VigorParse = class _VigorParse extends VigorStatus {
   /** Internal execution loop implementing the strategy fallback and restart handling. */
   async requestRuntime(restartAttempt = 1) {
     const config = this._merge(this.config, {});
-    let ctx = {
-      ...VigorParseContextBase,
+    let ctx = this._merge(VigorParseContextBase, {
       policy: config.policy
-    };
+    });
     if (isVigorDefault(ctx.policy.target)) throw new VigorParseError("VALUE_REQUIRED", {
       method: "request",
       data: { key: "target" },
@@ -1408,7 +1421,8 @@ var VigorParse = class _VigorParse extends VigorStatus {
           data: {
             maxAttempts: ctx.policy.settings.maxRestarts,
             error: ctx.error
-          }
+          },
+          context: ctx
         });
         return await this.requestRuntime(restartAttempt + 1);
       }
@@ -1460,7 +1474,7 @@ var VigorFetchContextBase = {
   error: VigorDefault,
   options: VigorDefault,
   flags: {
-    overrided: false,
+    overridden: false,
     restarted: false
   },
   record: {},
@@ -1679,17 +1693,17 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
   /** Internal execution loop implementing URL building, retry, parsing, and restart handling. */
   async requestRuntime(restartAttempt = 1) {
     const config = this._merge(this.config, {});
-    let ctx = {
-      ...VigorFetchContextBase,
+    let ctx = this._merge(VigorFetchContextBase, {
       policy: config.policy
-    };
+    });
     const throwError = (err) => {
       throw err;
     };
     try {
       if (isVigorEmpty(ctx.policy.origin)) throw new VigorFetchError("VALUE_REQUIRED", {
         method: "request",
-        data: { key: "origin" }
+        data: { key: "origin" },
+        context: ctx
       });
       ctx.href = this._buildUrl(ctx.policy.origin, ctx.policy.path, ctx.policy.query, ctx.policy.hash);
       const hasBody = !isVigorEmpty(ctx.policy.body) && ctx.policy.body !== void 0;
@@ -1801,10 +1815,10 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
       };
     } catch (error) {
       ctx.error = error;
-      ctx.flags.overrided = false;
+      ctx.flags.overridden = false;
       ctx.flags.restarted = false;
       const setResult = (r) => {
-        ctx.flags.overrided = true;
+        ctx.flags.overridden = true;
         ctx.result = r;
       };
       const proceedRestart = () => ctx.flags.restarted = true;
@@ -1823,11 +1837,12 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
           data: {
             maxAttempts: ctx.policy.settings.maxRestarts,
             error: ctx.error
-          }
+          },
+          context: ctx
         });
         return await this.requestRuntime(restartAttempt + 1);
       }
-      if (ctx.flags.overrided) return {
+      if (ctx.flags.overridden) return {
         success: true,
         data: ctx.result,
         error: null

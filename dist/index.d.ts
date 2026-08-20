@@ -212,17 +212,17 @@ type VigorAllPolicyMiddlewaresFluent<T extends VigorAllSchema<T>> = {
     __brand: VigorBrand<"All", "Policy<Middlewares<Fluent<Schema">;
     before: {
         _mode: "fluent";
-        func: (ctx: VigorAllBeforeContextSchema<T>) => void;
+        func: (ctx: VigorAllBeforeContextSchema<T>) => void | Promise<void>;
     };
     after: {
         _mode: "fluent";
-        func: (ctx: VigorAllAfterContextSchema<T>) => void;
+        func: (ctx: VigorAllAfterContextSchema<T>) => void | Promise<void>;
     };
     onResult: {
         _mode: "fluent";
         func: (res: VigorAllOnResultContextSchema<T> extends {
             result: infer R;
-        } ? R : never) => VigorAllContextSchema<any>["result"];
+        } ? R : never) => VigorAllContextSchema<any>["result"] | Promise<VigorAllContextSchema<any>["result"]>;
     };
 };
 type VigorAllPolicyMiddlewaresApi<T extends VigorAllSchema<T>> = {
@@ -526,21 +526,21 @@ type VigorFetchPolicyMiddlewaresFluent<T extends VigorFetchSchema<T>> = {
     __brand: VigorBrand<"Fetch", "Policy<Middlewares<Fluent<Schema">;
     before: {
         _mode: "fluent";
-        func: (ctx: VigorFetchBeforeContextSchema<T>) => void;
+        func: (ctx: VigorFetchBeforeContextSchema<T>) => void | Promise<void>;
     };
     after: {
         _mode: "fluent";
-        func: (ctx: VigorFetchAfterContextSchema<T>) => void;
+        func: (ctx: VigorFetchAfterContextSchema<T>) => void | Promise<void>;
     };
     onResult: {
         _mode: "fluent";
         func: (res: VigorFetchOnResultContextSchema<T> extends {
             result: infer R;
-        } ? R : never) => VigorFetchContextSchema<any>["result"];
+        } ? R : never) => VigorFetchContextSchema<any>["result"] | Promise<VigorFetchContextSchema<any>["result"]>;
     };
     onError: {
         _mode: "fluent";
-        func: (err: VigorFetchContextSchema<T>["error"]) => void;
+        func: (err: VigorFetchContextSchema<T>["error"]) => void | Promise<void>;
     };
 };
 type VigorFetchPolicyMiddlewaresApi<T extends VigorFetchSchema<T>> = {
@@ -706,7 +706,7 @@ type VigorFetchContextSchema<T extends VigorFetchSchema<T>, R = VigorFetchPipeRe
     error: unknown;
     options: VigorFetchOptions | VigorDefaultType;
     flags: {
-        overrided: boolean;
+        overridden: boolean;
         restarted: boolean;
     };
     record: Record<string, any>;
@@ -1043,29 +1043,29 @@ type VigorRetryPolicyMiddlewaresFluent<T extends VigorRetrySchema<T>> = {
     __brand: VigorBrand<"Retry", "Policy<Middlewares<Fluent<Schema">;
     before: {
         _mode: "fluent";
-        func: (ctx: VigorRetryBeforeContextSchema<T>) => void;
+        func: (ctx: VigorRetryBeforeContextSchema<T>) => void | Promise<void>;
     };
     after: {
         _mode: "fluent";
-        func: (ctx: VigorRetryAfterContextSchema<T>) => void;
+        func: (ctx: VigorRetryAfterContextSchema<T>) => void | Promise<void>;
     };
     onResult: {
         _mode: "fluent";
         func: (res: VigorRetryOnResultContextSchema<T> extends {
             result: infer R;
-        } ? R : never) => VigorRetryContextSchema<any>["result"];
+        } ? R : never) => VigorRetryContextSchema<any>["result"] | Promise<VigorRetryContextSchema<any>["result"]>;
     };
     retryIf: {
         _mode: "fluent";
-        func: (err: VigorRetryContextSchema<T>["error"]) => VigorRetryContextSchema<any>["flags"]["doRetry"];
+        func: (err: VigorRetryContextSchema<T>["error"]) => VigorRetryContextSchema<any>["flags"]["doRetry"] | Promise<VigorRetryContextSchema<any>["flags"]["doRetry"]>;
     };
     onRetry: {
         _mode: "fluent";
-        func: (err: VigorRetryContextSchema<T>["error"]) => void;
+        func: (err: VigorRetryContextSchema<T>["error"]) => void | Promise<void>;
     };
     onError: {
         _mode: "fluent";
-        func: (err: VigorRetryContextSchema<T>["error"]) => void;
+        func: (err: VigorRetryContextSchema<T>["error"]) => void | Promise<void>;
     };
 };
 type VigorRetryPolicyMiddlewaresApi<T extends VigorRetrySchema<T>> = {
@@ -1680,21 +1680,21 @@ type VigorParsePolicyMiddlewaresFluent<T extends VigorParseSchema<T>> = {
     __brand: VigorBrand<"Parse", "Policy<Middlewares<Fluent<Schema">;
     before: {
         _mode: "fluent";
-        func: (ctx: VigorParseBeforeContextSchema<T>) => void;
+        func: (ctx: VigorParseBeforeContextSchema<T>) => void | Promise<void>;
     };
     after: {
         _mode: "fluent";
-        func: (ctx: VigorParseAfterContextSchema<T>) => void;
+        func: (ctx: VigorParseAfterContextSchema<T>) => void | Promise<void>;
     };
     onResult: {
         _mode: "fluent";
         func: (res: VigorParseOnResultContextSchema<T> extends {
             result: infer R;
-        } ? R : never) => VigorParseContextSchema<any>["result"];
+        } ? R : never) => VigorParseContextSchema<any>["result"] | Promise<VigorParseContextSchema<any>["result"]>;
     };
     onError: {
         _mode: "fluent";
-        func: (err: VigorParseContextSchema<T>["error"]) => void;
+        func: (err: VigorParseContextSchema<T>["error"]) => void | Promise<void>;
     };
 };
 type VigorParsePolicyMiddlewaresApi<T extends VigorParseSchema<T>> = {
