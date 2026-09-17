@@ -6,7 +6,7 @@ import { VigorFetchTypeLambda } from "./TL"
 import { VigorFetchPolicySettings, VigorFetchPolicySettingsSchema } from "./settings"
 import { VigorDeepMerge, VigorDeepPartial } from "@core/types"
 import { VigorFetchPolicyMiddlewares, VigorFetchPolicyMiddlewaresApi, VigorFetchPolicyMiddlewaresSchema } from "./middlewares"
-import { VigorFetchError } from "./error"
+import { VigorFetchError, VigorFetchRequestError } from "./error"
 import { VigorRetry, VigorRetrySchema } from "@retry/main"
 import { VigorParse, VigorParseSchema } from "@parse/main"
 import { VigorFetchPolicyBase, VigorFetchPolicySchema, VigorStringable } from "./policy"
@@ -113,15 +113,19 @@ export class VigorFetch<
         const R extends VigorFetchSchema<any>
     >(input: VigorFetchPolicySettings<R>): VigorApply<VigorFetchTypeLambda, VigorDeepMerge<T, { policy: { settings: R["policy"]["settings"] } }>>
     public settings(input: any): any {
+        // `retryHeaders`/`unretryStatus` are whole lists: setting them replaces the previous list.
+        const strategy = { policy: { settings: { retryHeaders: "replace", unretryStatus: "replace" } } } as const
         if (typeof input === 'function' || input instanceof VigorFetchPolicySettings) {
+            // The callback builder starts from the current settings, so lists it doesn't touch are kept.
             const result = typeof input === 'function'
-                ? input(new VigorFetchPolicySettings<T>())
+                ? input(new VigorFetchPolicySettings<T>(this.config))
                 : input
             return this._next(
-                { policy: { settings: result.config.policy.settings } } as const
+                { policy: { settings: result.config.policy.settings } } as const,
+                strategy
             )
         }
-        return this._next({ policy: { settings: input } } as const)
+        return this._next({ policy: { settings: input } } as const, strategy)
     }
     /** Configures the fetch policy's middleware pipeline. */
     public middlewares<
@@ -229,7 +233,12 @@ export class VigorFetch<
 
         const baseStr = originObj.origin
         const pathParts = [originObj.pathname.replace(/^\/+|\/+$/g, '')]
-        for (const p of path) pathParts.push(p.replace(/^\/+|\/+$/g, ''))
+        // `/` inside a segment still separates path levels, but every other
+        // reserved character (`?`, `#`, `%`, spaces, ...) is percent-encoded so a
+        // segment can never leak into the query or fragment.
+        for (const p of path) {
+            for (const part of p.split('/')) pathParts.push(encodeURIComponent(part))
+        }
         const pathStr = pathParts.filter(Boolean).join('/')
 
         const mainObj = new URL(pathStr, baseStr)
@@ -253,7 +262,8 @@ export class VigorFetch<
         if (body == null) return { headers: {}, body: body as null | undefined }
         if (typeof body === "string") return { headers: { "Content-Type": "text/plain;charset=UTF-8" }, body }
         if (body instanceof Blob) return { headers: body.type ? { "Content-Type": body.type } : {}, body }
-        if (body instanceof ArrayBuffer) return { headers: { "Content-Type": "application/octet-stream" }, body }
+        if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return { headers: { "Content-Type": "application/octet-stream" }, body: body as BodyInit }
+        if (typeof ReadableStream !== "undefined" && body instanceof ReadableStream) return { headers: { "Content-Type": "application/octet-stream" }, body }
         if (body instanceof URLSearchParams) return { headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body }
         if (body instanceof FormData) return { headers: {}, body }
         if (typeof body === "object") return { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
@@ -262,6 +272,61 @@ export class VigorFetch<
             method: "_normalizeBody",
             data: { received: body }
         })
+    }
+
+    /**
+     * Returns the absolute URL a `3xx` response points at, or `null` when the
+     * response isn't a redirect or carries no usable `Location` header. A
+     * relative `Location` is resolved against the responding URL.
+     */
+    protected _resolveRedirect(response: Response, href: string): string | null {
+        if (response.status < 300 || response.status >= 400) return null
+        const location = response.headers.get("location")
+        if (!location) return null
+        try {
+            return new URL(location, response.url || href).href
+        } catch {
+            return null
+        }
+    }
+
+    /** The browser's `location`, or `null` in environments without one (e.g. Node). */
+    protected _browserLocation(): { href: string } | null {
+        const win = (globalThis as any).window
+        return win?.location?.href !== undefined ? win.location : null
+    }
+
+    /** Assigns `source` headers onto `target`, replacing any existing key that differs only in case. */
+    protected _assignHeaders(target: Record<string, string>, source: Record<string, string>): void {
+        for (const [key, value] of Object.entries(source)) {
+            const lower = key.toLowerCase()
+            for (const existing of Object.keys(target)) {
+                if (existing.toLowerCase() === lower) delete target[existing]
+            }
+            target[key] = value
+        }
+    }
+
+    /**
+     * Converts a rate-limit header value into a delay in milliseconds, or
+     * `null` if it can't be used. Accepts delta seconds (`Retry-After: 120`),
+     * Unix epoch seconds or milliseconds (`X-RateLimit-Reset: 1735689600`),
+     * and HTTP dates.
+     */
+    protected _parseRetryHeader(value: string | null): number | null {
+        if (!value) return null
+        const num = Number(value)
+        let delay: number
+        if (value.trim() !== "" && !isNaN(num)) {
+            if (num >= 1e12) delay = num - Date.now()               // epoch milliseconds
+            else if (num >= 1e9) delay = num * 1000 - Date.now()    // epoch seconds
+            else delay = num * 1000                                  // delta seconds
+        } else {
+            const date = new Date(value).getTime()
+            if (isNaN(date)) return null
+            delay = date - Date.now()
+        }
+        return delay > 0 ? delay : null
     }
 
     /**
@@ -283,20 +348,27 @@ export class VigorFetch<
         throw res.error
     }
     /** Runs the request and returns a result/error envelope instead of throwing. */
-    public async requestVerbose<R = VigorExcludeDefault<VigorFetchContextSchema<T>["result"]>>() {
-        return await this.requestRuntime<R>()
+    public async requestVerbose<R = VigorExcludeDefault<VigorFetchContextSchema<T>["result"]>>(): Promise<
+        {success: true, data: R, error: null} |
+        {success: false, data: null, error: VigorFetchRequestError<T>}
+    > {
+        try {
+            return await this.requestRuntime<R>()
+        } catch (error) {
+            return { success: false, data: null, error: error as VigorFetchRequestError<T> }
+        }
     }
     /** Internal execution loop implementing URL building, retry, parsing, and restart handling. */
     private async requestRuntime<R = VigorFetchContextSchema<T>["result"]>(
         restartAttempt: number = 1
     ): Promise<
         {success: true, data: R, error: null} |
-        {success: false, data: null, error: unknown}
+        {success: false, data: null, error: VigorFetchRequestError<T>}
     > {
         const config = this._merge(this.config, {}) as VigorFetchSchema<T>
         let ctx: VigorFetchContextSchema<T> = this._merge(VigorFetchContextBase, {
             policy: config.policy
-        })
+        }, undefined, "replace")
 
         const throwError: VigorFetchPolicyMiddlewaresApi<T>["throwError"] = (err) => { throw err }
 
@@ -309,10 +381,10 @@ export class VigorFetch<
 
             ctx.href = this._buildUrl(ctx.policy.origin, ctx.policy.path, ctx.policy.query, ctx.policy.hash)
 
-            const hasBody = !isVigorEmpty(ctx.policy.body) && ctx.policy.body !== undefined
+            const hasBody = !isVigorEmpty(ctx.policy.body) && ctx.policy.body != null
             const method = isVigorEmpty(ctx.policy.method) ? (hasBody ? "POST" : "GET") : ctx.policy.method
 
-            let options: VigorFetchOptions = {
+            const options: VigorFetchOptions = {
                 ...ctx.policy.extra,
                 method: method as VigorFetchOptions["method"],
                 headers: {}
@@ -322,29 +394,50 @@ export class VigorFetch<
                 if (normalized.body !== undefined) options.body = normalized.body
                 Object.assign(options.headers, normalized.headers)
             }
-            Object.assign(options.headers, ctx.policy.headers)
+            this._assignHeaders(options.headers, ctx.policy.headers)
 
+            // Exposed before `before` runs, so fluent middlewares can edit
+            // `ctx.options` directly; the intercept API writes to the same place.
+            ctx.options = options
             for (const middleware of ctx.policy.middlewares.before) {
                 if (middleware._mode === "fluent") {
                     await middleware.func(ctx as any)
                 } else {
-                    ctx = await middleware.func(ctx as any, {
+                    ctx = (await middleware.func(ctx as any, {
                         throwError,
-                        setOptions: (o) => { options = o },
-                        setHeaders: (h) => { options.headers = h },
-                        setBody: (b) => { options.body = b as any }
-                    }) as typeof ctx
+                        setOptions: (o) => { ctx.options = o },
+                        setHeaders: (h) => { (ctx.options as VigorFetchOptions).headers = h },
+                        setBody: (b) => { (ctx.options as VigorFetchOptions).body = b as any }
+                    }) ?? ctx) as typeof ctx
                 }
             }
-            ctx.options = options
+            const finalOptions = (isVigorDefault(ctx.options) ? options : ctx.options) as VigorFetchOptions
+            ctx.options = finalOptions
+            if (typeof ReadableStream !== "undefined" && finalOptions.body instanceof ReadableStream) {
+                // Node's fetch requires this for streaming request bodies.
+                (finalOptions as any).duplex ??= "half"
+            }
 
             const retryEngine = new VigorRetry(ctx.policy.retry)
                 .target(async (signal) => {
-                    return await fetch(ctx.href, { ...options, signal } as RequestInit)
+                    return await fetch(ctx.href, { ...finalOptions, signal } as RequestInit)
                 })
                 .middlewares(m => m
                     .after("intercept", async (rctx, api) => {
                         const response = rctx.result as Response
+                        // Checked before `ok`, since a 3xx is not `ok` and would otherwise be retried.
+                        if (ctx.policy.settings.redirect) {
+                            const target = this._resolveRedirect(response, ctx.href)
+                            const location = this._browserLocation()
+                            if (target && location) {
+                                location.href = target
+                                api.throwError(new VigorFetchError("REDIRECTED", {
+                                    method: "request",
+                                    data: { url: target, status: response.status, response },
+                                    context: ctx
+                                }))
+                            }
+                        }
                         if (!response.ok) {
                             let parsed: unknown = undefined
                             try {
@@ -368,29 +461,22 @@ export class VigorFetch<
                         const response = rctx.error instanceof VigorFetchError
                             ? (rctx.error.data as any)?.response as Response | undefined
                             : undefined
-                        if (response && ctx.policy.settings.unretryStatus.includes(response.status)) api.cancelRetry()
-                        else api.proceedRetry()
+                        // Only vetoes — never forces a retry, so a user `retryIf` on the retry engine keeps its decision.
+                        if (rctx.error instanceof VigorFetchError && rctx.error.code === "REDIRECTED") api.cancelRetry()
+                        else if (response && ctx.policy.settings.unretryStatus.includes(response.status)) api.cancelRetry()
                         return rctx
                     })
                     .onRetry("intercept", async (rctx, api) => {
                         const response = rctx.error instanceof VigorFetchError
                             ? (rctx.error.data as any)?.response as Response | undefined
                             : undefined
-                        if (response?.status === 429) {
-                            let retryHeader: string | null = null
+                        if (response?.status === 429 || response?.status === 503) {
                             for (const header of ctx.policy.settings.retryHeaders) {
-                                retryHeader = response.headers.get(header)
-                                if (retryHeader) break
-                            }
-                            if (retryHeader) {
-                                const toNumber = Number(retryHeader)
-                                const delay = !isNaN(toNumber)
-                                    ? toNumber * 1000
-                                    : (() => {
-                                        const toDate = new Date(retryHeader as string).getTime()
-                                        return !isNaN(toDate) ? toDate - Date.now() : null
-                                    })()
-                                if (delay !== null && delay > 0) api.setDelay(delay)
+                                const delay = this._parseRetryHeader(response.headers.get(header))
+                                if (delay !== null) {
+                                    api.setDelay(delay)
+                                    break
+                                }
                             }
                         }
                         return rctx
@@ -406,7 +492,7 @@ export class VigorFetch<
                 if (middleware._mode === "fluent") {
                     await middleware.func(ctx as any)
                 } else {
-                    ctx = await middleware.func(ctx as any, { throwError, setResult: (r) => { ctx.result = r } }) as typeof ctx
+                    ctx = (await middleware.func(ctx as any, { throwError, setResult: (r) => { ctx.result = r } }) ?? ctx) as typeof ctx
                 }
             }
 
@@ -415,7 +501,7 @@ export class VigorFetch<
                 if (middleware._mode === "fluent") {
                     ctx.result = await middleware.func(ctx.result as any)
                 } else {
-                    ctx = await middleware.func(ctx as any, { setResult, throwError }) as typeof ctx
+                    ctx = (await middleware.func(ctx as any, { setResult, throwError }) ?? ctx) as typeof ctx
                 }
             }
 
@@ -440,18 +526,18 @@ export class VigorFetch<
                 if (middleware._mode === "fluent") {
                     await middleware.func(ctx.error)
                 } else {
-                    ctx = await middleware.func(ctx as any, { setResult, throwError, proceedRestart, cancelRestart }) as typeof ctx
+                    ctx = (await middleware.func(ctx as any, { setResult, throwError, proceedRestart, cancelRestart }) ?? ctx) as typeof ctx
                 }
             }
 
             if (ctx.flags.restarted) {
-                if (restartAttempt + 1 > ctx.policy.settings.maxRestarts) throw new VigorFetchError("RESTART_EXHAUSTED", {
+                if (restartAttempt > ctx.policy.settings.maxRestarts) throw new VigorFetchError("RESTART_EXHAUSTED", {
                     method: "request",
                     cause: ctx.error,
                     data: {
                         maxAttempts: ctx.policy.settings.maxRestarts,
                         error: ctx.error
-                    },
+                },
                     context: ctx
                 })
                 return await this.requestRuntime<R>(restartAttempt + 1)
@@ -472,7 +558,7 @@ export class VigorFetch<
             return {
                 success: false,
                 data: null,
-                error
+                error: error as VigorFetchRequestError<T>
             }
         }
     }

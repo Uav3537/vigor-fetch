@@ -28,7 +28,10 @@ export abstract class VigorStatus<
      */
     constructor(base: Base, config: Config | VigorDeepPartial<Config>) {
         this._base = base
-        this._config = this._merge(base, config) as Config
+        // `base` only fills in keys `config` lacks — arrays in `config` replace
+        // the base defaults instead of concatenating, so re-constructing from
+        // an already-merged config (as `_next()` does) never duplicates them.
+        this._config = this._merge(base, config, undefined, "replace") as Config
     }
 
     /** Constructs a concrete instance of this builder from a merged config. */
@@ -54,9 +57,11 @@ export abstract class VigorStatus<
     /**
      * Deep-merges `target` onto `source`, honoring an optional per-path
      * `strategy` tree. Objects merge key by key, arrays concatenate (unless
-     * `"replace"` is specified), and any other value is overwritten.
+     * `"replace"` is specified, or `arrayMode` is `"replace"`), and any other
+     * value — including `null` — is overwritten. Only `undefined` keeps the
+     * source value.
      */
-    protected _merge<A, B>(source: A, target: B, strategy?: unknown): VigorDeepMerge<A, B> {
+    protected _merge<A, B>(source: A, target: B, strategy?: unknown, arrayMode: "concat" | "replace" = "concat"): VigorDeepMerge<A, B> {
         const isObj = (v: unknown): v is Record<string, unknown> =>
             v !== null &&
             typeof v === "object" &&
@@ -73,12 +78,12 @@ export abstract class VigorStatus<
         }
 
         const merge = (a: unknown, b: unknown, s: unknown): unknown => {
-            if (b === undefined || b === null) return deepClone(a)   // ✅ 클론해서 반환
+            if (b === undefined) return deepClone(a)
 
             if (s === "replace") return b
 
             if (Array.isArray(a) && Array.isArray(b)) {
-                return s === "replace" ? b : [...a, ...b]
+                return arrayMode === "replace" ? deepClone(b) : [...a, ...b]
             }
 
             if (isObj(a) && isObj(b)) {

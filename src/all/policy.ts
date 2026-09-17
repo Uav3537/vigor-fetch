@@ -3,10 +3,16 @@ import { VigorAllPolicySettingsBase, VigorAllPolicySettingsSchema } from "./sett
 import { VigorAllPolicyMiddlewaresBase, VigorAllPolicyMiddlewaresSchema } from "./middlewares"
 import type { VigorAllSchema } from "./main"
 
-export type VigorAllTask = () => unknown | Promise<unknown>
+/**
+ * A single task. It receives an `AbortSignal` that fires when the task's
+ * `timeout` elapses, the batch's `abortSignals` abort, or `failFast` stops
+ * the batch — tasks that ignore it keep running in the background, but
+ * their result is discarded.
+ */
+export type VigorAllTask = (signal: AbortSignal) => unknown | Promise<unknown>
 
 /** Extracts (and unwraps `Promise`/`Awaited`) the result type of a single task. */
-export type VigorAllTaskResult<F> = F extends () => infer R ? Awaited<R> : never
+export type VigorAllTaskResult<F> = F extends (...args: any[]) => infer R ? Awaited<R> : never
 
 /**
  * Maps a tuple of tasks to a tuple of their (awaited) result types, in the
@@ -23,6 +29,7 @@ export type VigorAllPolicySchema<
     __brand: VigorBrand<"All", "Policy<Schema">
 
     target: VigorAllTask[]
+    abortSignals: AbortSignal[]
     settings: VigorAllPolicySettingsSchema<T>
     middlewares: VigorAllPolicyMiddlewaresSchema<T>
 }
@@ -31,6 +38,7 @@ export const VigorAllPolicyBase = {
     __brand: createBrand("All", "Policy<Schema"),
 
     target: [] as [],
+    abortSignals: [] as [],
     settings: VigorAllPolicySettingsBase,
     middlewares: VigorAllPolicyMiddlewaresBase
 } as const satisfies VigorAllPolicySchema<any>

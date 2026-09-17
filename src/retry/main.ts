@@ -7,10 +7,13 @@ import { VigorRetryPolicySettings, VigorRetryPolicySettingsSchema } from "./sett
 import { VigorDeepMerge, VigorDeepPartial } from "@core/types"
 import { VigorRetryPolicyMiddlewares, VigorRetryPolicyMiddlewaresApi, VigorRetryPolicyMiddlewaresSchema } from "./middlewares"
 import { VigorRetryPolicyAlgorithms, VigorRetryPolicyAlgorithmsSchema } from "./algorithms"
-import { VigorRetryError } from "./error"
+import { VigorRetryError, VigorRetryRequestError } from "./error"
 import { VigorRetryPolicyBase, VigorRetryPolicySchema } from "./policy"
 
 export * from "./policy"
+
+/** Largest delay `setTimeout` accepts — longer values overflow and fire immediately. */
+const MAX_TIMEOUT = 2 ** 31 - 1
 
 export type VigorRetrySchema<
     T extends VigorRetrySchema<T>
@@ -145,20 +148,27 @@ export class VigorRetry<
         throw res.error
     }
     /** Runs the target and returns a result/error envelope instead of throwing. */
-    public async requestVerbose<R = VigorExcludeDefault<VigorRetryContextSchema<T>["result"]>>() {
-        return await this.requestRuntime<R>()
+    public async requestVerbose<R = VigorExcludeDefault<VigorRetryContextSchema<T>["result"]>>(): Promise<
+        {success: true, data: R, error: null} |
+        {success: false, data: null, error: VigorRetryRequestError<T>}
+    > {
+        try {
+            return await this.requestRuntime<R>()
+        } catch(error) {
+            return { success: false, data: null, error: error as VigorRetryRequestError<T> }
+        }
     }
     /** Internal execution loop implementing the attempt/retry/restart lifecycle. */
     private async requestRuntime<R = VigorRetryContextSchema<T>["result"]>(
         restartAttempt: number = 1
     ): Promise<
         {success: true, data: R, error: null} |
-        {success: false, data: null, error: unknown}
+        {success: false, data: null, error: VigorRetryRequestError<T>}
     > {
         const config = this._merge(this.config, {}) as VigorRetrySchema<T>
         let ctx: VigorRetryContextSchema<T> = this._merge(VigorRetryContextBase, {
             policy: config.policy
-        }) as VigorRetryContextSchema<T>
+        }, undefined, "replace") as VigorRetryContextSchema<T>
         if(isVigorEmpty(ctx.policy.target)) throw new VigorRetryError("VALUE_REQUIRED", {
             method: "request",
             data: {
@@ -172,6 +182,8 @@ export class VigorRetry<
         const throwError: VigorRetryPolicyMiddlewaresApi<T>["throwError"] = (err) => {
             throw err
         }
+
+        const outerSignals = AbortSignal.any(ctx.policy.abortSignals)
 
         try {
             while(ctx.system.attempt < ctx.policy.settings.maxAttempts) {
@@ -189,13 +201,6 @@ export class VigorRetry<
                         timeoutController.signal
                     ])
 
-                    const outerSignals = AbortSignal.any(ctx.policy.abortSignals)
-
-                    const autoBreak = () => {
-                        ctx.flags.brokeRetry = true
-                    }
-                    outerSignals.addEventListener("abort", autoBreak)
-
                     const mergedSignals = AbortSignal.any([
                         innerSignals,
                         outerSignals
@@ -207,22 +212,26 @@ export class VigorRetry<
                             if(middleware._mode === "fluent") {
                                 await middleware.func(ctx as any)
                             } else {
-                                ctx = await middleware.func(ctx as any, {
+                                ctx = (await middleware.func(ctx as any, {
                                     abort: (reason) => userController.abort(reason),
                                     throwError,
                                     breakRetry
-                                }) as typeof ctx
+                                }) ?? ctx) as typeof ctx
                             }
                         }
                         mergedSignals.throwIfAborted()
 
-                        timeoutId = setTimeout(() => timeoutController.abort(new VigorRetryError("TIMED_OUT", {
-                            method: "request",
-                            data: {
-                                limit: ctx.policy.settings.timeout
-                            },
-                            context: ctx
-                        })), ctx.policy.settings.timeout)
+                        // `0`, a negative value, or `Infinity` disables the per-attempt timeout.
+                        const limit = ctx.policy.settings.timeout
+                        if(Number.isFinite(limit) && limit > 0) {
+                            timeoutId = setTimeout(() => timeoutController.abort(new VigorRetryError("TIMED_OUT", {
+                                method: "request",
+                                data: {
+                                    limit
+                                },
+                                context: ctx
+                            })), Math.min(limit, MAX_TIMEOUT))
+                        }
 
                         ctx.result = await Promise.race([
                             target(mergedSignals),
@@ -236,9 +245,9 @@ export class VigorRetry<
                             if(middleware._mode === "fluent") {
                                 await middleware.func(ctx as any)
                             } else {
-                                ctx = await middleware.func(ctx as any, {
+                                ctx = (await middleware.func(ctx as any, {
                                     throwError
-                                }) as typeof ctx
+                                }) ?? ctx) as typeof ctx
                             }
                         }
 
@@ -250,10 +259,10 @@ export class VigorRetry<
                             if(middleware._mode === "fluent") {
                                 ctx.result = await middleware.func(ctx.result as any)
                             } else {
-                                ctx = await middleware.func(ctx as any, {
+                                ctx = (await middleware.func(ctx as any, {
                                     setResult,
                                     throwError
-                                }) as typeof ctx
+                                }) ?? ctx) as typeof ctx
                             }
                         }
                         return {
@@ -263,11 +272,12 @@ export class VigorRetry<
                         }
                     } finally {
                         clearTimeout(timeoutId)
-                        outerSignals.removeEventListener("abort", autoBreak)
                         if(onAbort) mergedSignals.removeEventListener("abort", onAbort)
                     }
                 } catch(error) {
                     ctx.error = error
+                    // An external abort always stops retrying.
+                    if(outerSignals.aborted) ctx.flags.brokeRetry = true
                     if(ctx.flags.brokeRetry) throw ctx.error
                     ctx.flags.doRetry = true
 
@@ -277,10 +287,10 @@ export class VigorRetry<
                         if(middleware._mode === "fluent") {
                             ctx.flags.doRetry = await middleware.func(ctx.error)
                         } else {
-                            ctx = await middleware.func(ctx, {
+                            ctx = (await middleware.func(ctx, {
                                 proceedRetry,
                                 cancelRetry
-                            })
+                            }) ?? ctx) as typeof ctx
                         }
                     }
                     if(!ctx.flags.doRetry) throw ctx.error
@@ -294,15 +304,31 @@ export class VigorRetry<
                         if(middleware._mode === "fluent") {
                             await middleware.func(ctx.error)
                         } else {
-                            ctx = await middleware.func(ctx, {
+                            ctx = (await middleware.func(ctx, {
                                 throwError,
                                 setDelay
-                            })
+                            }) ?? ctx) as typeof ctx
                         }
                     }
 
-                    const delay = ctx.system.delay
-                    await new Promise(res => setTimeout(res, delay as number))
+                    const delay = Math.min(Math.max(0, Number(ctx.system.delay) || 0), MAX_TIMEOUT)
+                    // The delay is abortable, so an external abort doesn't wait it out.
+                    await new Promise<void>((res, rej) => {
+                        if(outerSignals.aborted) {
+                            ctx.flags.brokeRetry = true
+                            return rej(outerSignals.reason)
+                        }
+                        const onAbort = () => {
+                            clearTimeout(id)
+                            ctx.flags.brokeRetry = true
+                            rej(outerSignals.reason)
+                        }
+                        const id = setTimeout(() => {
+                            outerSignals.removeEventListener("abort", onAbort)
+                            res()
+                        }, delay)
+                        outerSignals.addEventListener("abort", onAbort, { once: true })
+                    })
                 }
             }
 
@@ -330,24 +356,26 @@ export class VigorRetry<
                 if(middleware._mode === "fluent") {
                     await middleware.func(ctx.error)
                 } else {
-                    ctx = await middleware.func(ctx, {
+                    ctx = (await middleware.func(ctx, {
                         setResult,
                         throwError,
                         proceedRestart,
                         cancelRestart
-                    })
+                    }) ?? ctx) as typeof ctx
                 }
             }
             if(ctx.flags.doRestart) {
-                if(restartAttempt + 1 > ctx.policy.settings.maxRestarts) throw new VigorRetryError("RESTART_EXHAUSTED", {
+                // `restartAttempt` counts runs, so `restartAttempt - 1` restarts have happened so far.
+                if(restartAttempt > ctx.policy.settings.maxRestarts) throw new VigorRetryError("RESTART_EXHAUSTED", {
                     method: "request",
                     cause: ctx.error,
                     data: {
                         maxAttempts: ctx.policy.settings.maxRestarts,
                         error: ctx.error
-                    }
+                },
+                    context: ctx
                 })
-                return await this.requestRuntime(restartAttempt + 1)
+                return await this.requestRuntime<R>(restartAttempt + 1)
             }
             if(ctx.flags.overridden) return {
                 success: true,
@@ -365,7 +393,7 @@ export class VigorRetry<
             return {
                 success: false,
                 data: null,
-                error: ctx.error
+                error: ctx.error as VigorRetryRequestError<T>
             }
         }
     }

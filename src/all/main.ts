@@ -1,4 +1,4 @@
-import { createBrand, VigorBrand, VigorCastPlaceholder, VigorEmpty, VigorExcludeDefault } from "@core/symbol"
+import { createBrand, isVigorEmpty, VigorBrand, VigorCastPlaceholder, VigorEmpty, VigorExcludeDefault } from "@core/symbol"
 import { VigorAllContextBase, VigorAllContextSchema, VigorAllEachContextBase, VigorAllEachContextSchema } from "./context"
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
@@ -6,7 +6,7 @@ import { VigorAllTypeLambda } from "./TL"
 import { VigorAllPolicySettings, VigorAllPolicySettingsSchema } from "./settings"
 import { VigorDeepMerge, VigorDeepPartial } from "@core/types"
 import { VigorAllPolicyMiddlewares, VigorAllPolicyMiddlewaresSchema } from "./middlewares"
-import { VigorAllError } from "./error"
+import { VigorAllError, VigorAllRequestError } from "./error"
 import { VigorAllPolicyBase, VigorAllPolicySchema, VigorAllTask } from "./policy"
 
 export * from "./policy"
@@ -48,6 +48,10 @@ export class VigorAll<
     /** Sets the list of tasks to run. */
     public target<const N extends VigorAllTask[]>(...funcs: N) {
         return this._next({ policy: { target: funcs } } as const)
+    }
+    /** Sets external abort signals that, when aborted, cancel the remaining tasks and fail the batch. */
+    public abortSignals<const N extends VigorAllSchema<T>["policy"]["abortSignals"]>(...sig: N) {
+        return this._next({ policy: { abortSignals: sig } } as const)
     }
     /** Configures the all-policy's general settings (concurrency, onlySuccess). */
     public settings<
@@ -95,21 +99,47 @@ export class VigorAll<
     /** Runs a single task through the beforeEach/afterEach/onErrorEach middleware pipeline. */
     private async _runTask(
         task: VigorAllTask,
-        policy: VigorAllPolicySchema<any>
+        index: number,
+        policy: VigorAllPolicySchema<any>,
+        batchSignal: AbortSignal
     ): Promise<{ success: true, value: unknown } | { success: false, value: unknown }> {
-        let ctx: VigorAllEachContextSchema<any> = this._merge(VigorAllEachContextBase, {})
+        let ctx: VigorAllEachContextSchema<any> = this._merge(VigorAllEachContextBase, { index })
+
+        const timeoutController = new AbortController()
+        const signal = AbortSignal.any([batchSignal, timeoutController.signal])
+        let timeoutId: ReturnType<typeof setTimeout> | undefined
+        let onAbort: (() => void) | undefined
 
         try {
             for (const beforeEach of policy.middlewares.beforeEach) await beforeEach(ctx)
-            ctx.result = await task()
+            signal.throwIfAborted()
+
+            const limit = policy.settings.timeout
+            if (!isVigorEmpty(limit)) {
+                timeoutId = setTimeout(() => timeoutController.abort(new VigorAllError("TIMED_OUT", {
+                    method: "request",
+                    data: { limit, index }
+                })), limit)
+            }
+
+            ctx.result = await Promise.race([
+                task(signal),
+                new Promise((_, rej) => {
+                    onAbort = () => rej(signal.reason)
+                    signal.addEventListener("abort", onAbort)
+                })
+            ])
             for (const afterEach of policy.middlewares.afterEach) await afterEach(ctx)
             return { success: true, value: ctx.result }
         } catch (error) {
             ctx.error = error
-            const setResult = (r: unknown) => { ctx.flags.overrided = true; ctx.result = r }
+            const setResult = (r: unknown) => { ctx.flags.overridden = true; ctx.result = r }
             for (const onErrorEach of policy.middlewares.onErrorEach) await onErrorEach(ctx, { setResult })
-            if (ctx.flags.overrided) return { success: true, value: ctx.result }
+            if (ctx.flags.overridden) return { success: true, value: ctx.result }
             return { success: false, value: error }
+        } finally {
+            clearTimeout(timeoutId)
+            if (onAbort) signal.removeEventListener("abort", onAbort)
         }
     }
 
@@ -132,22 +162,25 @@ export class VigorAll<
         throw res.error
     }
     /** Runs all tasks and returns a result/error envelope instead of throwing. */
-    public async requestVerbose<R = VigorExcludeDefault<VigorAllContextSchema<T>["result"]>>() {
+    public async requestVerbose<R = VigorExcludeDefault<VigorAllContextSchema<T>["result"]>>(): Promise<
+        {success: true, data: R, error: null} |
+        {success: false, data: null, error: VigorAllRequestError<T>}
+    > {
         return await this.requestRuntime<R>()
     }
     /** Internal execution loop implementing the bounded-concurrency worker pool and the batch-level before/after/onResult pipeline. */
     private async requestRuntime<R = unknown>(
     ): Promise<
         {success: true, data: R, error: null} |
-        {success: false, data: null, error: unknown}
+        {success: false, data: null, error: VigorAllRequestError<T>}
     > {
         const config = this._merge(this.config, {}) as VigorAllSchema<T>
         const policy = config.policy
 
         let ctx: VigorAllContextSchema<any> = this._merge(VigorAllContextBase, {
             policy
-        })
-        const setResult = (r: unknown) => { ctx = { ...ctx, result: r } }
+        }, undefined, "replace")
+        const setResult = (r: unknown) => { ctx.result = r }
         const throwError = (err: unknown) => { throw err }
 
         try {
@@ -161,24 +194,39 @@ export class VigorAll<
                 if (mw._mode === "fluent") {
                     await mw.func(ctx as any)
                 } else {
-                    ctx = await mw.func(ctx as any, { throwError }) as typeof ctx
+                    ctx = (await mw.func(ctx as any, { throwError }) ?? ctx) as typeof ctx
                 }
             }
 
-            const concurrency = Math.max(1, policy.settings.concurrency)
+            const concurrency = Number.isNaN(policy.settings.concurrency)
+                ? 1
+                : Math.max(1, Math.floor(policy.settings.concurrency))
             const results: { success: boolean, value: unknown }[] = new Array(policy.target.length)
+
+            // Aborted by an external signal, by `failFast`, or by an `onErrorEach` hook throwing.
+            const batchController = new AbortController()
+            const batchSignal = AbortSignal.any([...policy.abortSignals, batchController.signal])
 
             let cursor = 0
             const worker = async () => {
-                while (true) {
+                while (!batchSignal.aborted) {
                     const i = cursor++
                     if (i >= policy.target.length) return
-                    results[i] = await this._runTask(policy.target[i], policy)
+                    try {
+                        results[i] = await this._runTask(policy.target[i], i, policy, batchSignal)
+                    } catch (error) {
+                        batchController.abort(error)
+                        return
+                    }
+                    if (!results[i].success && policy.settings.failFast) {
+                        batchController.abort(results[i].value)
+                    }
                 }
             }
             await Promise.all(
                 Array.from({ length: Math.min(concurrency, policy.target.length) }, () => worker())
             )
+            batchSignal.throwIfAborted()
 
             ctx.result = policy.settings.onlySuccess
                 ? results.filter(r => r.success).map(r => r.value)
@@ -188,7 +236,7 @@ export class VigorAll<
                 if (mw._mode === "fluent") {
                     await mw.func(ctx as any)
                 } else {
-                    ctx = await mw.func(ctx as any, { setResult, throwError }) as typeof ctx
+                    ctx = (await mw.func(ctx as any, { setResult, throwError }) ?? ctx) as typeof ctx
                 }
             }
 
@@ -196,7 +244,7 @@ export class VigorAll<
                 if (mw._mode === "fluent") {
                     ctx.result = await mw.func(ctx.result as any)
                 } else {
-                    ctx = await mw.func(ctx as any, { setResult, throwError }) as typeof ctx
+                    ctx = (await mw.func(ctx as any, { setResult, throwError }) ?? ctx) as typeof ctx
                 }
             }
 
@@ -209,7 +257,7 @@ export class VigorAll<
             return {
                 success: false,
                 data: null,
-                error
+                error: error as VigorAllRequestError<T>
             }
         }
     }

@@ -1,3 +1,15 @@
+/**
+ * The `error` of a failed result envelope: `E` is the module's own typed
+ * errors, and `{} | null | undefined` stands for anything else that reached
+ * the caller — an error thrown by your own target/middleware, an abort
+ * reason, a network `TypeError`, even a bare `throw null`.
+ *
+ * Because of that tail, reading `error.code` directly doesn't compile. Narrow
+ * first (`isVigorRetryError(err)`), and `code` then narrows `data` to that
+ * code's payload.
+ */
+export type VigorResultError<E> = E | {} | null | undefined
+
 export type VigorErrorOptions<D, T> = {
     cause?: unknown;
     data: D;

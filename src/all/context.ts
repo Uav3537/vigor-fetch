@@ -68,17 +68,20 @@ export type VigorAllEachContextSchema<
 > = {
     __brand: VigorBrand<"All", "EachContext<Schema">
 
+    /** Position of this task in the `target` list. */
+    index: number
     result: unknown | VigorDefaultType
     error: unknown
-    flags: { overrided: boolean }
+    flags: { overridden: boolean }
     record: Record<string, any>
 }
 
 export const VigorAllEachContextBase = {
     __brand: createBrand("All", "EachContext<Schema"),
 
+    index: 0,
     result: VigorDefault,
     error: VigorDefault,
-    flags: { overrided: false },
+    flags: { overridden: false },
     record: {}
 } as const satisfies VigorAllEachContextSchema<any>

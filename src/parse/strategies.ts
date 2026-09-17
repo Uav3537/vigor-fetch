@@ -21,8 +21,17 @@ export const VigorParsePolicyStrategiesBase = {
     funcs: [] as VigorParseStrategyFunc[]
 } as const satisfies VigorParsePolicyStrategiesSchema<any>
 
+/** Reads the body as JSON, treating an empty body as `null` instead of a syntax error. */
+const parseJsonOrNull = async (res: Response) => {
+    const text = await res.text()
+    return text.trim() === "" ? null : JSON.parse(text)
+}
+
+/** Status codes whose responses never carry a body. */
+const NoBodyStatus = [204, 205, 304]
+
 const ContentTypeParsers = [
-    { header: "application/json", regExp: /application\/(.+\+)?json(.+\+)?/i, method: (res: Response) => res.json() },
+    { header: "application/json", regExp: /application\/(.+\+)?json(.+\+)?/i, method: parseJsonOrNull },
     { header: "application/xml", regExp: /application\/(.+\+)?xml(.+\+)?/i, method: (res: Response) => res.text() },
     { header: "application/x-www-form-urlencoded", regExp: /application\/(.+\+)?x-www-form-urlencoded(.+\+)?/i, method: (res: Response) => res.formData() },
     { header: "application/octet-stream", regExp: /application\/(.+\+)?octet-stream(.+\+)?/i, method: (res: Response) => res.arrayBuffer() },
@@ -43,13 +52,19 @@ const SniffMethods = [
     { title: "blob", method: (res: Response) => res.blob() },
 ]
 
-/** Parses a response by matching its `Content-Type` header against a known parser table. */
+/**
+ * Parses a response by matching its `Content-Type` header against a known
+ * parser table. A response without a body (e.g. `204 No Content`) resolves to
+ * `null`, and one without a `Content-Type` is read as text (`null` if empty).
+ */
 export const VigorParseContentTypeStrategy: VigorParseStrategyFunc = async (response) => {
+    if (response.body === null || NoBodyStatus.includes(response.status)) return null
+
     const contentTypeHeader = response.headers.get("content-type")
-    if (!contentTypeHeader) throw new VigorParseError("INVALID_CONTENT_TYPE", {
-        method: "VigorParseContentTypeStrategy",
-        data: { received: contentTypeHeader }
-    })
+    if (!contentTypeHeader) {
+        const text = await response.text()
+        return text === "" ? null : text
+    }
 
     const toDo = ContentTypeParsers.find(parser => parser.regExp.test(contentTypeHeader))
     if (!toDo) throw new VigorParseError("PARSER_NOT_FOUND", {

@@ -22,7 +22,7 @@ export type VigorParseContextSchema<
     error: unknown
     response: VigorParsePolicySchema<T>["target"]
     flags: {
-        overrided: boolean
+        overridden: boolean
         restarted: boolean
     },
     record: Record<string, any>,
@@ -70,7 +70,7 @@ export const VigorParseContextBase = {
     error: VigorDefault,
     response: VigorDefault,
     flags: {
-        overrided: false,
+        overridden: false,
         restarted: false
     },
     record: {},

@@ -1,4 +1,4 @@
-import { createBrand, VigorBrand } from "@core/symbol"
+import { createBrand, VigorBrand, VigorEmpty, VigorEmptyType, VigorExcludeEmpty } from "@core/symbol"
 import { VigorAllBase, VigorAllSchema } from "./main"
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
@@ -11,13 +11,19 @@ export type VigorAllPolicySettingsSchema<
 
     concurrency: number
     onlySuccess: boolean
+    /** Per-task timeout in milliseconds. `VigorEmpty` (the default) disables it. */
+    timeout: number | VigorEmptyType
+    /** When `true`, the first task failure (not recovered by `onErrorEach`) aborts the remaining tasks and fails the batch. */
+    failFast: boolean
 }
 
 export const VigorAllPolicySettingsBase = {
     __brand: createBrand("All", "Policy<Settings<Schema"),
 
     concurrency: 5,
-    onlySuccess: false
+    onlySuccess: false,
+    timeout: VigorEmpty,
+    failFast: false
 } as const satisfies VigorAllPolicySettingsSchema<any>
 
 /** Immutable builder for an all-policy's general settings. */
@@ -40,5 +46,13 @@ export class VigorAllPolicySettings<
     /** When enabled, filters the final result down to only the tasks that succeeded. */
     public onlySuccess<const N extends VigorAllSchema<any>["policy"]["settings"]["onlySuccess"]>(bool: N) {
         return this._next({ policy: { settings: { onlySuccess: bool } } } as const)
+    }
+    /** Sets the per-task timeout, in milliseconds. A task exceeding it fails with `TIMED_OUT`. */
+    public timeout<const N extends VigorExcludeEmpty<VigorAllSchema<any>["policy"]["settings"]["timeout"]>>(num: N) {
+        return this._next({ policy: { settings: { timeout: num } } } as const)
+    }
+    /** When enabled, the first unrecovered task failure aborts the remaining tasks and fails the batch with that error. */
+    public failFast<const N extends VigorAllSchema<any>["policy"]["settings"]["failFast"]>(bool: N) {
+        return this._next({ policy: { settings: { failFast: bool } } } as const)
     }
 }

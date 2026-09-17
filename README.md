@@ -166,6 +166,8 @@ vigor.fetch("https://api.example.com/", "/api")
 
 `origin()` only accepts one argument — pass origin + first path segments as separate calls, or fold extra segments into `path()`.
 
+Path segments are percent-encoded, so values like `"a b"` or `"x?y"` can never leak into the query or fragment. A `/` inside a segment still separates path levels: `.path("v1/users", "a b")` → `/v1/users/a%20b`. Pass segments **unencoded** — an already-encoded `%20` would be encoded again.
+
 ### headers / body / options
 
 ```ts
@@ -175,7 +177,9 @@ vigor.fetch("/api")
   .options("merge", { credentials: "include" })
 ```
 
-Body is auto-normalized based on type (string, `Blob`, `ArrayBuffer`, `URLSearchParams`, `FormData`, or plain object → JSON), and a matching `Content-Type` header is set automatically unless you've already set one via `.headers()`.
+Body is auto-normalized based on type (string, `Blob`, `ArrayBuffer`/typed array/`DataView`, `ReadableStream`, `URLSearchParams`, `FormData`, or plain object → JSON), and a matching `Content-Type` header is set automatically unless you've already set one via `.headers()` (header names are compared case-insensitively). `body("overwrite", null)` removes a previously set body.
+
+> A `ReadableStream` body can only be sent once, so a retried or restarted request with a stream body will fail — use a replayable body type if you rely on retries.
 
 ### settings
 
@@ -190,12 +194,33 @@ Body is auto-normalized based on type (string, `Blob`, `ArrayBuffer`, `URLSearch
 
 | Method | Description | Default |
 |---|---|---|
-| `retryHeaders(...strs)` | Response headers checked for a `429` retry delay | `["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"]` |
+| `retryHeaders(...strs)` | Response headers checked for a `429`/`503` retry delay | `["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after"]` |
 | `unretryStatus(...nums)` | HTTP status codes that are never retried, regardless of the retry engine's attempt budget | `[400, 401, 403, 404, 405, 413, 422]` |
+| `redirect(bool)` | On a `3xx` response with a `Location` header, navigates the page via `window.location.href` | `true` |
 | `maxRestarts(num)` | Max number of full pipeline restarts (see `onError` below) | `3` |
 | `default(fn)` | Fallback value/factory used only if the request ultimately fails and no restart/override happened | throws |
 
-On any non-`unretryStatus` failure response, the internal retry engine retries per its own `settings`/`algorithms` (defaults: 5 attempts, 20s timeout, exponential-ish backoff jitter — see `vigor.retry` below). On a `429`, Vigor reads `retryHeaders` off the response and uses that value (seconds or an HTTP date) as the next delay automatically.
+`retryHeaders` and `unretryStatus` **replace** the whole list (in both the builder and the config-object form), so you can also remove defaults — e.g. `.settings({ unretryStatus: [] })` makes every failure status retryable. To extend the defaults instead, spread `VigorFetchPolicySettingsBase.unretryStatus`.
+
+On any non-`unretryStatus` failure response, the internal retry engine retries per its own `settings`/`algorithms` (defaults: 5 attempts, 20s timeout, exponential-ish backoff jitter — see `vigor.retry` below). On a `429` or `503`, Vigor reads `retryHeaders` off the response and uses the first usable value as the next delay automatically. Delta seconds (`Retry-After: 120`), Unix epoch seconds/milliseconds (`X-RateLimit-Reset: 1735689600`), and HTTP dates are all understood.
+
+### redirect
+
+With `settings.redirect` left `true`, a `3xx` response that carries a `Location` header navigates the browser to it:
+
+```ts
+await vigor
+  .fetch("/api/session")
+  .options("merge", { redirect: "manual" }) // otherwise fetch follows 3xx itself
+  .request();
+// 302 Location: /login  ->  window.location.href = "https://app.example.com/login"
+```
+
+- A relative `Location` is resolved against the responding URL.
+- Navigation isn't instant, so the call still settles: it fails with `VigorFetchError("REDIRECTED")`, whose `data` holds `{ url, status, response }`. That attempt is never retried.
+- **Without `window.location` (Node, workers, SSR) it does nothing and behaves exactly like `redirect(false)`** — the `3xx` falls through to the normal failure path (`FETCH_FAILED`, retried per your retry config).
+- Native `fetch` follows redirects on its own by default, so a `3xx` only reaches Vigor when you pass `redirect: "manual"` (or `"error"`) through `.options()`. Note that in browsers `"manual"` yields an opaque response with no readable `Location`, so same-origin navigation of this kind is mostly useful where the response is readable (e.g. a proxy under your control, or a non-browser runtime with a `window` shim).
+- Statuses without a `Location` (e.g. `304 Not Modified`) are left alone.
 
 ### interceptors (`middlewares`)
 
@@ -222,6 +247,10 @@ Every stage takes a mode as the first argument: `"fluent"` (return a plain value
 | `onError` | After the request has finally failed | `setResult`, `throwError`, `proceedRestart`, `cancelRestart` |
 
 Fluent-mode signatures: `before`/`after` take `(ctx) => void`, `onResult` takes `(res) => newRes`, `onError` takes `(err) => void`.
+
+In `before`, `ctx.options` already holds the built request (`method`, `headers`, `body`, extra options), so a fluent middleware can also edit it directly — e.g. `ctx.options.headers["X-Trace"] = id`.
+
+An intercept middleware that returns nothing keeps the current context (this applies to every module).
 
 `onError` → `proceedRestart()` re-runs the **entire** fetch pipeline from scratch (up to `settings.maxRestarts` times) — this is separate from, and on top of, the internal retry engine's per-attempt retries.
 
@@ -259,7 +288,7 @@ Without `.cast()`, the result type falls back to whatever your `parse()` config 
 | Method | Description |
 |---|---|
 | `target(fn)` | Sets the function to run: `(signal: AbortSignal) => any \| Promise<any>` |
-| `abortSignals(...sigs)` | Attaches external `AbortSignal`s that cancel the current attempt when aborted |
+| `abortSignals(...sigs)` | Attaches external `AbortSignal`s. Aborting cancels the current attempt (or the pending retry delay) and stops retrying |
 | `settings(fn \| config)` | General retry settings (below) |
 | `middlewares(fn \| config)` | Middleware pipeline (below) |
 | `algorithms(fn)` | Selects and configures the delay algorithm (below) |
@@ -283,7 +312,7 @@ await vigor
 | `default(fn)` | Fallback value/factory when the target ultimately fails | throws |
 | `maxAttempts(num)` | Max attempts before giving up on this run | `5` |
 | `maxRestarts(num)` | Max full pipeline restarts (see `onError`) | `3` |
-| `timeout(ms)` | Timeout per individual attempt | `20000` |
+| `timeout(ms)` | Timeout per individual attempt. `0` or `Infinity` disables it | `20000` |
 
 ### algorithms
 
@@ -372,7 +401,7 @@ Strategies form an ordered list that's tried in sequence until one succeeds (eac
 
 | Method | Behavior |
 |---|---|
-| `contentType(replace?)` | Parses based on the request|response's `Content-Type` header (JSON / XML / form-urlencoded / octet-stream / image / audio / video / multipart / text) |
+| `contentType(replace?)` | Parses based on the request|response's `Content-Type` header (JSON / XML / form-urlencoded / octet-stream / image / audio / video / multipart / text). A body-less response (e.g. `204 No Content`) or an empty JSON body resolves to `null`; a response without `Content-Type` is read as text |
 | `sniff(replace?)` | Tries `json → formData → text → blob` in order until one parses |
 | `json(replace?)` | Always parses as JSON |
 | `text(replace?)` | Always parses as text |
@@ -408,13 +437,14 @@ const data = await vigor
 
 ## `vigor.all`
 
-Runs a fixed list of zero-argument tasks with bounded concurrency, `Promise.allSettled`-style — an individual task failing never makes the whole batch throw by itself.
+Runs a fixed list of tasks with bounded concurrency, `Promise.allSettled`-style — an individual task failing never makes the whole batch throw by itself.
 
 ### Methods
 
 | Method | Description |
 |---|---|
-| `target(...funcs)` | Sets the task list — each is `() => unknown \| Promise<unknown>` |
+| `target(...funcs)` | Sets the task list — each is `(signal: AbortSignal) => unknown \| Promise<unknown>` |
+| `abortSignals(...signals)` | External signals that cancel the remaining tasks and fail the batch with the signal's reason |
 | `settings(fn \| config)` | Concurrency settings (below) |
 | `middlewares(fn \| config)` | Batch-level and per-task hooks (below) |
 | `cast<T>()` | Overrides the inferred result type with `T` |
@@ -437,8 +467,23 @@ const results = await vigor
 |---|---|---|
 | `concurrency(num)` | Max number of tasks running at once | `5` |
 | `onlySuccess(bool)` | When `true`, filters the final array down to only tasks whose result wasn't recovered as a failure | `false` |
+| `timeout(ms)` | Per-task timeout. A task exceeding it fails with `VigorAllError("TIMED_OUT")` (recoverable via `onErrorEach`) | disabled |
+| `failFast(bool)` | When `true`, the first task failure not recovered by `onErrorEach` aborts the remaining tasks and makes the batch fail with that error | `false` |
 
-> Unlike `vigor.retry`/`vigor.fetch`/`vigor.parse`, `vigor.all` has no `default`/fallback setting and no batch-level `onError` — the only thing that makes `.request()` throw is an **empty** task list (`EMPTY_TARGET`). Per-task failures are handled by `onErrorEach` (below) instead.
+Each task receives an `AbortSignal` that fires on its timeout, on an external `abortSignals` abort, or when `failFast` stops the batch. Pass it along (e.g. to `fetch`) so in-flight work actually stops — a task that ignores it keeps running in the background, but its result is discarded.
+
+```ts
+const results = await vigor
+  .all(
+    (signal) => fetch("/api/1", { signal }),
+    (signal) => fetch("/api/2", { signal })
+  )
+  .abortSignals(controller.signal)
+  .settings(s => s.timeout(5000).failFast(true))
+  .request();
+```
+
+> Unlike `vigor.retry`/`vigor.fetch`/`vigor.parse`, `vigor.all` has no `default`/fallback setting and no batch-level `onError`. By default the batch only fails on an **empty** task list (`EMPTY_TARGET`), an external abort, a `failFast` stop, or an `onErrorEach` hook throwing. Per-task failures are otherwise handled by `onErrorEach` (below).
 
 **Result typing:** when `onlySuccess` is `false` (the default) and `target(...)` is given as literal task functions, the result is inferred as a **tuple** matching each task's own return type — `.target(() => 1 as const, () => "a")` infers `[1, "a"]`, not `unknown[]`. Setting `onlySuccess(true)` filters the array at runtime to an arbitrary length, so the type falls back to a plain array. `.cast<T>()` overrides either case.
 
@@ -453,7 +498,9 @@ const results = await vigor
 | `onResult(type, fn)` | Batch | Once, right before returning the final result | `setResult`, `throwError` (intercept mode) |
 | `beforeEach(fn)` | Per-task | Before each individual task is invoked | — |
 | `afterEach(fn)` | Per-task | After a task settles successfully | — |
-| `onErrorEach(fn)` | Per-task | When an individual task throws | `setResult` |
+| `onErrorEach(fn)` | Per-task | When an individual task throws (including `TIMED_OUT`) | `setResult` |
+
+Per-task hooks receive a context with `index` (the task's position in `target`), `result`, `error`, and `flags.overridden`.
 
 ```ts
 .middlewares(m => m
@@ -487,7 +534,7 @@ export type VigorPlugin<
 vigor.use(plugin, options?)
 ```
 
-`plugin.func` receives the current `vigor` instance (read-only — plugins never mutate it, e.g. they might read it to wrap an existing method) and returns `Ext`, a set of properties to merge in. `vigor.use()` shallow-clones `vigor` (including its nested `builders` groups) and merges `Ext` on top, returning a **new** instance — `VigorInstance & Ext` — leaving the original `vigor` untouched.
+`plugin.func` receives the current `vigor` instance (read-only — plugins never mutate it, e.g. they might read it to wrap an existing method) and returns `Ext`, a set of properties to merge in. `vigor.use()` shallow-clones the instance it's called on (including its nested `builders` groups) and merges `Ext` on top, returning a **new** instance, typed `VigorInstance<Ext>`, while the original stays untouched. Calls chain: `vigor.use(a).use(b)` keeps both plugins' extensions, and `b` receives the instance that already includes `a`'s.
 
 ```ts
 const loggingPlugin: VigorPlugin<{ prefix?: string }> = {
@@ -518,6 +565,38 @@ try {
 }
 ```
 
+### typed errors
+
+`requestVerbose()`'s `error` is typed per module, as **a union of that module's errors plus `{}`**:
+
+| Module | `error` type |
+|---|---|
+| `vigor.retry` | `VigorRetryErrors \| {} \| null \| undefined` |
+| `vigor.parse` | `VigorParseErrors \| {} \| null \| undefined` |
+| `vigor.all` | `VigorAllErrors \| {} \| null \| undefined` |
+| `vigor.fetch` | `VigorFetchErrors \| VigorRetryErrors \| VigorParseErrors \| {} \| null \| undefined` (the nested engines surface their own errors) |
+
+`VigorRetryErrors` & co. are unions with **one member per error code**, so narrowing by `code` also narrows `data` to that code's payload. The `{} | null | undefined` tail is everything Vigor didn't create — an error your own target or middleware threw, an abort reason, a network `TypeError`, or even a bare `throw null`. It's there because those really do reach you: a `cancelRetry()`/`breakRetry()`/abort path returns your error as-is, rather than wrapping it.
+
+Narrow with the exported guards — `isVigorRetryError`, `isVigorParseError`, `isVigorFetchError`, `isVigorAllError`:
+
+```ts
+const res = await vigor.retry(task).requestVerbose();
+if (!res.success) {
+  if (isVigorRetryError(res.error)) {
+    res.error.code;                 // "VALUE_REQUIRED" | "RETRY_EXHAUSTED" | "RESTART_EXHAUSTED" | "TIMED_OUT"
+    if (res.error.code === "TIMED_OUT") res.error.data.limit;       // number
+    if (res.error.code === "RETRY_EXHAUSTED") res.error.data.error; // the last underlying error
+  } else {
+    res.error; // whatever your task threw
+  }
+}
+```
+
+Prefer the guard over a bare `instanceof`: because of the `{}` member, `instanceof` widens `data` back to every code's payload, while the guard keeps `code` and `data` in sync. And since the tail has no `code`, reading `res.error.code` without narrowing is a compile error — that's the point.
+
+All four modules are typed this way. `request()` throws instead of returning an envelope, so its thrown value stays `unknown` — narrow it with the same guards.
+
 Or avoid try/catch entirely with `requestVerbose()`:
 
 ```ts
@@ -529,10 +608,10 @@ if (!res.success) {
 
 | Module | Error codes |
 |---|---|
-| `VigorFetchError` | `VALUE_REQUIRED`, `INVALID_BODY`, `INVALID_PROTOCOL`, `FETCH_FAILED`, `RESTART_EXHAUSTED` |
+| `VigorFetchError` | `VALUE_REQUIRED`, `INVALID_BODY`, `INVALID_PROTOCOL`, `FETCH_FAILED`, `RESTART_EXHAUSTED`, `REDIRECTED` |
 | `VigorRetryError` | `VALUE_REQUIRED`, `RETRY_EXHAUSTED`, `RESTART_EXHAUSTED`, `TIMED_OUT` |
 | `VigorParseError` | `VALUE_REQUIRED`, `INVALID_CONTENT_TYPE`, `PARSER_NOT_FOUND`, `PARSER_ALL_FAILED`, `RESTART_EXHAUSTED` |
-| `VigorAllError` | `EMPTY_TARGET` |
+| `VigorAllError` | `EMPTY_TARGET`, `TIMED_OUT` |
 
 `FETCH_FAILED`'s `data` includes `parsed`: Vigor best-effort parses the failed response's body (using your configured parse strategies) before throwing, so you can inspect an API's error payload without re-fetching. If parsing that body also fails, `parsed` is simply `undefined`.
 

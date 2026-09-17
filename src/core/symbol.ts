@@ -31,8 +31,6 @@ export type VigorExcludeDefault<T> = Exclude<T, VigorDefaultType>
 export const isVigorDefault = (v: any): v is VigorDefaultType => v === VigorDefault;
 
 
-
-
 export const VigorEmpty = Symbol("VigorEmpty") as symbol & {
     __brand: VigorBrand<"Core", "Symbol_Empty">
 }

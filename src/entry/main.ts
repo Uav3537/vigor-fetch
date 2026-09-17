@@ -104,11 +104,12 @@ const vigorBase = {
     }
 }
 
-export type VigorInstance = typeof vigorBase & {
+/** `Ext` accumulates every plugin extension applied so far, so `use().use()` keeps all of them. */
+export type VigorInstance<Ext = {}> = typeof vigorBase & Ext & {
     use: <P extends VigorPlugin<any, any>>(
         plugin: P,
         options?: P["options"]
-    ) => VigorInstance & ReturnType<P["func"]>
+    ) => VigorInstance<Ext & ReturnType<P["func"]>>
 }
 
 /**
@@ -126,7 +127,10 @@ export type VigorPlugin<
 }
 
 /** Shallow-clones a Vigor instance, including its nested `builders` groups, so callers never get a reference back into the original. */
-const cloneVigor = (v: VigorInstance): VigorInstance => ({
+/** Runtime shape of an instance without its `use` (plus whatever plugins added). */
+type VigorInstanceFields = typeof vigorBase & Record<string, unknown>
+
+const cloneVigor = (v: VigorInstanceFields): VigorInstanceFields => ({
     ...v,
     builders: {
         fetch: { ...v.builders.fetch },
@@ -136,10 +140,20 @@ const cloneVigor = (v: VigorInstance): VigorInstance => ({
     }
 })
 
-export const vigor: VigorInstance = {
-    ...vigorBase,
-    use: (plugin, options) => {
-        const ext = plugin.func(vigor, options as any)
-        return { ...cloneVigor(vigor), ...ext } as VigorInstance & typeof ext
-    },
+/**
+ * Builds an instance whose `use()` extends *that* instance (not the root
+ * `vigor`), so chained plugins see and keep each other's extensions.
+ */
+const createVigor = (fields: VigorInstanceFields): VigorInstance => {
+    const instance = {
+        ...fields,
+        use: (plugin: VigorPlugin<any, any>, options?: unknown) => {
+            const ext = plugin.func(instance, options)
+            const { use: _, ...rest } = { ...cloneVigor(instance), ...ext }
+            return createVigor(rest as VigorInstanceFields)
+        },
+    } as unknown as VigorInstance
+    return instance
 }
+
+export const vigor: VigorInstance = createVigor(vigorBase)

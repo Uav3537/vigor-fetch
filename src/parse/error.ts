@@ -1,4 +1,4 @@
-import { VigorError, VigorErrorOptions } from "@core/error";
+import { VigorError, VigorErrorOptions, VigorResultError } from "@core/error";
 import { VigorParseSchema } from "./main";
 import type { VigorParseContextSchema } from "./context";
 
@@ -16,6 +16,17 @@ export type VigorParseErrorDatas<C extends VigorParseErrorCodes> =
     Parameters<typeof VigorParseErrorMessageFuncs[C]> extends [infer A]
         ? A
         : undefined;
+
+/**
+ * Every parse error code as its own union member, so narrowing by `code`
+ * also narrows `data` to that code's payload.
+ */
+export type VigorParseErrors<T extends VigorParseSchema<any> = VigorParseSchema<any>> = {
+    [C in VigorParseErrorCodes]: VigorParseError<C, T>
+}[VigorParseErrorCodes]
+
+/** `error` of a failed `requestVerbose()` — this module's errors, or anything else that was thrown. */
+export type VigorParseRequestError<T extends VigorParseSchema<any> = any> = VigorResultError<VigorParseErrors<T>>
 
 /** Error type thrown by the parse module. */
 export class VigorParseError<
@@ -35,3 +46,12 @@ export class VigorParseError<
         super(code, messageFn(options.data), options)
     }
 }
+
+/**
+ * Narrows an error from a failed result envelope to the parse module's typed
+ * error union. Prefer this over a bare `instanceof`: the envelope's `{}`
+ * member makes `instanceof` widen `data` back to every code's payload,
+ * while this guard keeps `code` and `data` in sync.
+ */
+export const isVigorParseError = (error: unknown): error is VigorParseErrors =>
+    error instanceof VigorParseError

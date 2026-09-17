@@ -7,7 +7,7 @@ import { VigorParsePolicySettings, VigorParsePolicySettingsSchema } from "./sett
 import { VigorDeepMerge, VigorDeepPartial } from "@core/types"
 import { VigorParsePolicyMiddlewares, VigorParsePolicyMiddlewaresApi, VigorParsePolicyMiddlewaresSchema } from "./middlewares"
 import { VigorParsePolicyStrategies, VigorParsePolicyStrategiesSchema, VigorParseContentTypeStrategy } from "./strategies"
-import { VigorParseError } from "./error"
+import { VigorParseError, VigorParseRequestError } from "./error"
 import { VigorParsePolicyBase, VigorParsePolicySchema } from "./policy"
 
 export * from "./policy"
@@ -133,20 +133,27 @@ export class VigorParse<
         throw res.error
     }
     /** Runs parsing and returns a result/error envelope instead of throwing. */
-    public async requestVerbose<R = VigorExcludeDefault<VigorParseContextSchema<T>["result"]>>() {
-        return await this.requestRuntime<R>()
+    public async requestVerbose<R = VigorExcludeDefault<VigorParseContextSchema<T>["result"]>>(): Promise<
+        {success: true, data: R, error: null} |
+        {success: false, data: null, error: VigorParseRequestError<T>}
+    > {
+        try {
+            return await this.requestRuntime<R>()
+        } catch (error) {
+            return { success: false, data: null, error: error as VigorParseRequestError<T> }
+        }
     }
     /** Internal execution loop implementing the strategy fallback and restart handling. */
     private async requestRuntime<R = VigorParseContextSchema<T>["result"]>(
         restartAttempt: number = 1
     ): Promise<
         {success: true, data: R, error: null} |
-        {success: false, data: null, error: unknown}
+        {success: false, data: null, error: VigorParseRequestError<T>}
     > {
         const config = this._merge(this.config, {}) as VigorParseSchema<T>
         let ctx: VigorParseContextSchema<T> = this._merge(VigorParseContextBase, {
             policy: config.policy
-        })
+        }, undefined, "replace")
 
         if (isVigorDefault(ctx.policy.target)) throw new VigorParseError("VALUE_REQUIRED", {
             method: "request",
@@ -163,7 +170,7 @@ export class VigorParse<
                 if (middleware._mode === "fluent") {
                     await middleware.func(ctx as any)
                 } else {
-                    ctx = await middleware.func(ctx as any, { throwError }) as typeof ctx
+                    ctx = (await middleware.func(ctx as any, { throwError }) ?? ctx) as typeof ctx
                 }
             }
 
@@ -196,7 +203,7 @@ export class VigorParse<
                 if (middleware._mode === "fluent") {
                     await middleware.func(ctx as any)
                 } else {
-                    ctx = await middleware.func(ctx as any, { setResult, throwError }) as typeof ctx
+                    ctx = (await middleware.func(ctx as any, { setResult, throwError }) ?? ctx) as typeof ctx
                 }
             }
 
@@ -204,7 +211,7 @@ export class VigorParse<
                 if (middleware._mode === "fluent") {
                     ctx.result = await middleware.func(ctx.result as any)
                 } else {
-                    ctx = await middleware.func(ctx as any, { setResult, throwError }) as typeof ctx
+                    ctx = (await middleware.func(ctx as any, { setResult, throwError }) ?? ctx) as typeof ctx
                 }
             }
 
@@ -215,11 +222,11 @@ export class VigorParse<
             }
         } catch (error) {
             ctx.error = error
-            ctx.flags.overrided = false
+            ctx.flags.overridden = false
             ctx.flags.restarted = false
 
             const setResult: VigorParsePolicyMiddlewaresApi<T>["setResult"] = (res) => {
-                ctx.flags.overrided = true
+                ctx.flags.overridden = true
                 ctx.result = res
             }
             const proceedRestart: VigorParsePolicyMiddlewaresApi<T>["proceedRestart"] = () => ctx.flags.restarted = true
@@ -229,23 +236,23 @@ export class VigorParse<
                 if (middleware._mode === "fluent") {
                     await middleware.func(ctx.error)
                 } else {
-                    ctx = await middleware.func(ctx as any, { setResult, throwError, proceedRestart, cancelRestart }) as typeof ctx
+                    ctx = (await middleware.func(ctx as any, { setResult, throwError, proceedRestart, cancelRestart }) ?? ctx) as typeof ctx
                 }
             }
 
             if (ctx.flags.restarted) {
-                if (restartAttempt + 1 > ctx.policy.settings.maxRestarts) throw new VigorParseError("RESTART_EXHAUSTED", {
+                if (restartAttempt > ctx.policy.settings.maxRestarts) throw new VigorParseError("RESTART_EXHAUSTED", {
                     method: "request",
                     cause: ctx.error,
                     data: {
                         maxAttempts: ctx.policy.settings.maxRestarts,
                         error: ctx.error
-                    },
+                },
                     context: ctx
                 })
                 return await this.requestRuntime<R>(restartAttempt + 1)
             }
-            if (ctx.flags.overrided) return {
+            if (ctx.flags.overridden) return {
                 success: true,
                 data: ctx.result as R,
                 error: null
@@ -261,7 +268,7 @@ export class VigorParse<
             return {
                 success: false,
                 data: null,
-                error: ctx.error
+                error: ctx.error as VigorParseRequestError<T>
             }
         }
     }

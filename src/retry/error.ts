@@ -1,4 +1,4 @@
-import { VigorError, VigorErrorOptions } from "@core/error";
+import { VigorError, VigorErrorOptions, VigorResultError } from "@core/error";
 import { VigorRetrySchema } from "./main";
 import type { VigorRetryContextSchema } from "./context";
 
@@ -15,6 +15,17 @@ export type VigorRetryErrorDatas<C extends VigorRetryErrorCodes> =
     Parameters<typeof VigorRetryErrorMessageFuncs[C]> extends [infer A]
         ? A
         : undefined;
+
+/**
+ * Every retry error code as its own union member, so narrowing by `code`
+ * also narrows `data` to that code's payload.
+ */
+export type VigorRetryErrors<T extends VigorRetrySchema<any> = VigorRetrySchema<any>> = {
+    [C in VigorRetryErrorCodes]: VigorRetryError<C, T>
+}[VigorRetryErrorCodes]
+
+/** `error` of a failed `requestVerbose()` — this module's errors, or anything else that was thrown. */
+export type VigorRetryRequestError<T extends VigorRetrySchema<any> = any> = VigorResultError<VigorRetryErrors<T>>
 
 /** Error type thrown by the retry module. */
 export class VigorRetryError<
@@ -34,3 +45,12 @@ export class VigorRetryError<
         super(code, messageFn(options.data), options)
     }
 }
+
+/**
+ * Narrows an error from a failed result envelope to the retry module's typed
+ * error union. Prefer this over a bare `instanceof`: the envelope's `{}`
+ * member makes `instanceof` widen `data` back to every code's payload,
+ * while this guard keeps `code` and `data` in sync.
+ */
+export const isVigorRetryError = (error: unknown): error is VigorRetryErrors =>
+    error instanceof VigorRetryError
