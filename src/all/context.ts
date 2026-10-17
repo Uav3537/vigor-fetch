@@ -1,8 +1,9 @@
 import { createBrand, VigorBrand, VigorDefault, VigorDefaultType } from "@core/symbol"
 import { VigorAllPolicyBase } from "./policy"
 import type { VigorAllSchema } from "./main"
-import type { VigorAllPipeInitialContext, VigorAllPipeResult, VigorAllPipeStepVoid, VigorAllPipeStepResult } from "./middlewares"
-import type { VigorDeepMerge } from "@core/types"
+import type { VigorAllPipeResult } from "./middlewares"
+import type { VigorCastResult, VigorContextReset, VigorContextStage } from "@core/types"
+import type { VigorAllNaturalResult } from "./policy"
 import type { VigorAllTimeline } from "./timeline"
 
 /**
@@ -23,35 +24,34 @@ export type VigorAllContextSchema<
     timeline: VigorAllTimeline
 }
 
-/** Context shape seen by `before` middlewares — no task has run yet. */
+/** The result before any batch-level middleware: `.cast<T>()`'s, else the tasks' outcomes. */
+export type VigorAllCastNaturalResult<
+    T extends VigorAllSchema<T>
+> = VigorCastResult<T["cast"], VigorAllNaturalResult<T>>
+
+/**
+ * Context seen by `before` middlewares — no task has run yet.
+ *
+ * Each stage's context is defined on its own — the runtime's view at that
+ * point — with whatever the stage's earlier intercept middlewares changed by
+ * returning a different context (see `VigorContextStage`).
+ */
 export type VigorAllBeforeContextSchema<
     T extends VigorAllSchema<T>
-> = VigorAllContextSchema<T, VigorDefaultType>
+> = VigorContextStage<VigorAllContextSchema<T, VigorDefaultType>, T["policy"]["middlewares"]["before"]>
 
-/** Context shape seen by `after` middlewares — every task has settled, reflecting whatever `before` changed. */
+/** Context seen by `after` middlewares — every task has settled; what `before` changed otherwise carries over. */
 export type VigorAllAfterContextSchema<
     T extends VigorAllSchema<T>
-> = VigorDeepMerge<
-    VigorAllPipeStepVoid<
-        VigorAllPipeInitialContext<T>,
-        T["policy"]["middlewares"]["before"]
-    >,
-    // before -> 모든 태스크 실행 -> after 순서이므로, after 시작 시점의 result는
-    // before가 무엇을 리턴했든 실제 집계 결과 타입으로 재설정되어야 한다.
-    { result: VigorAllPipeInitialContext<T>["result"] },
-    { result: "replace" }
+> = VigorContextStage<
+    VigorContextReset<VigorAllBeforeContextSchema<T>, { result: VigorAllCastNaturalResult<T> }>,
+    T["policy"]["middlewares"]["after"]
 >
 
-/** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
+/** Context seen by `onResult` middlewares — `ctx.result` is what the earlier `onResult` ones left it as. */
 export type VigorAllOnResultContextSchema<
     T extends VigorAllSchema<T>
-> = VigorAllPipeStepResult<
-    VigorAllPipeStepVoid<
-        VigorAllAfterContextSchema<T>,
-        T["policy"]["middlewares"]["after"]
-    >,
-    T["policy"]["middlewares"]["onResult"]
->
+> = VigorContextStage<VigorAllAfterContextSchema<T>, T["policy"]["middlewares"]["onResult"], "result">
 
 /** Context shape once the full batch-level pipeline (`before`/`after`/`onResult`) has run. */
 export type VigorAllResultContextSchema<

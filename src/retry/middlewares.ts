@@ -3,12 +3,15 @@ import { VigorRetryBase, VigorRetrySchema } from "./main"
 import { VigorStatus } from "@core/status"
 import { VigorRetryPolicyMiddlewaresTypeLambda } from "./TL"
 import { VigorApply } from "@core/HKT"
-import { VigorCastResult, VigorDeepMerge, VigorReturnType } from "@core/types"
+import { VigorDeepMerge } from "@core/types"
 import type {
     VigorRetryContextSchema,
     VigorRetryBeforeContextSchema,
     VigorRetryAfterContextSchema,
-    VigorRetryOnResultContextSchema
+    VigorRetryOnResultContextSchema,
+    VigorRetryRetryIfContextSchema,
+    VigorRetryOnRetryContextSchema,
+    VigorRetryOnErrorContextSchema
 } from "./context"
 
 export type VigorRetryPolicyMiddlewaresSchema<
@@ -50,7 +53,7 @@ export type VigorRetryPolicyMiddlewaresFluent<
     }
     onResult: {
         _mode: "fluent",
-        func: (res: VigorRetryOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorRetryContextSchema<any>["result"]|Promise<VigorRetryContextSchema<any>["result"]>
+        func: (res: VigorRetryOnResultContextSchema<T>["result"]) => VigorRetryContextSchema<any>["result"]|Promise<VigorRetryContextSchema<any>["result"]>
     }
     retryIf: {
         _mode: "fluent",
@@ -103,15 +106,15 @@ export type VigorRetryPolicyMiddlewaresIntercept<
     }
     retryIf: {
         _mode: "intercept",
-        func: (ctx: VigorRetryContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "proceedRetry"|"cancelRetry">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
+        func: (ctx: VigorRetryRetryIfContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "proceedRetry"|"cancelRetry">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
     }
     onRetry: {
         _mode: "intercept",
-        func: (ctx: VigorRetryContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "throwError"|"setDelay">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
+        func: (ctx: VigorRetryOnRetryContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "throwError"|"setDelay">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
     }
     onError: {
         _mode: "intercept",
-        func: (ctx: VigorRetryContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "setResult"|"throwError"|"proceedRestart"|"cancelRestart">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
+        func: (ctx: VigorRetryOnErrorContextSchema<T>, api: Pick<VigorRetryPolicyMiddlewaresApi<T>, "setResult"|"throwError"|"proceedRestart"|"cancelRestart">) => VigorRetryContextSchema<any> | Promise<VigorRetryContextSchema<any>>
     }
 }
 
@@ -253,66 +256,12 @@ export class VigorRetryPolicyMiddlewares<
     }
 }
 
-export type VigorRetryPipeInitialContext<
-    T extends VigorRetrySchema<T>,
-    R = VigorCastResult<T["cast"], VigorReturnType<T["policy"]["target"]>>
-> = VigorDeepMerge<Omit<VigorRetryContextSchema<T, unknown>, "result">, { result: R }>
-
-export type VigorRetryPipeStepVoid<
-    Ctx,
-    Arr
-> = Arr extends [infer Head, ...infer Tail]
-    ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
-        ? VigorRetryPipeStepVoid<Ret, Tail>
-        : VigorRetryPipeStepVoid<Ctx, Tail>
-    : Ctx
-
-export type VigorRetryPipeStepResult<
-    Ctx,
-    Arr
-> = Arr extends [infer Head, ...infer Tail]
-    ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
-        ? VigorRetryPipeStepResult<Ret, Tail>
-        : Head extends { _mode: "fluent", func: (...args: any[]) => infer FR }
-            ? VigorRetryPipeStepResult<VigorDeepMerge<Ctx, { result: FR }, { result: "replace" }>, Tail>
-            : VigorRetryPipeStepResult<Ctx, Tail>
-    : Ctx
-
-export type VigorRetryPipeStepRetryIf<
-    Ctx,
-    Arr
-> = Arr extends [infer Head, ...infer Tail]
-    ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
-        ? VigorRetryPipeStepRetryIf<Ret, Tail>
-        : Head extends { _mode: "fluent", func: (...args: any[]) => infer FR }
-            ? VigorRetryPipeStepRetryIf<VigorDeepMerge<Ctx, { flags: { doRetry: FR } }, { flags: { doRetry: "replace" } }>, Tail>
-            : VigorRetryPipeStepRetryIf<Ctx, Tail>
-    : Ctx
-
-export type VigorRetryPolicyMiddlewaresPipe<
-    T extends VigorRetrySchema<T>
-> = VigorRetryPipeStepVoid<
-    VigorRetryPipeStepVoid<
-        VigorRetryPipeStepRetryIf<
-            VigorRetryPipeStepResult<
-                VigorRetryPipeStepVoid<
-                    VigorRetryPipeStepVoid<
-                        VigorRetryPipeInitialContext<T>,
-                        T["policy"]["middlewares"]["before"]
-                    >,
-                    T["policy"]["middlewares"]["after"]
-                >,
-                T["policy"]["middlewares"]["onResult"]
-            >,
-            T["policy"]["middlewares"]["retryIf"]
-        >,
-        T["policy"]["middlewares"]["onRetry"]
-    >,
-    T["policy"]["middlewares"]["onError"]
->
-
+/** The result the success pipeline produces: the target's (or `.cast<T>()`'s), through `after` and `onResult`. */
 export type VigorRetryPipeResult<
     T extends VigorRetrySchema<T>
-> = VigorRetryPolicyMiddlewaresPipe<T> extends { result: infer R }
-    ? R
-    : never
+> = VigorRetryOnResultContextSchema<T>["result"]
+
+/** `ctx.result` once the `onError` middlewares ran — what a recovered run (`setResult`) resolves to, as far as types go. */
+export type VigorRetryErrorPipeResult<
+    T extends VigorRetrySchema<T>
+> = VigorRetryOnErrorContextSchema<T>["result"]

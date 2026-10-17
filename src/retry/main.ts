@@ -5,7 +5,7 @@ import { VigorApply } from "@core/HKT"
 import { VigorRetryTypeLambda } from "./TL"
 import { VigorRetryPolicySettings, VigorRetryPolicySettingsSchema } from "./settings"
 import { VigorDeepMerge, VigorDeepPartial, VigorNoExtraKeys, VigorReturnType } from "@core/types"
-import { VigorRetryPolicyMiddlewares, VigorRetryPolicyMiddlewaresApi, VigorRetryPolicyMiddlewaresSchema } from "./middlewares"
+import { VigorRetryErrorPipeResult, VigorRetryPolicyMiddlewares, VigorRetryPolicyMiddlewaresApi, VigorRetryPolicyMiddlewaresSchema } from "./middlewares"
 import { VigorRetryPolicyAlgorithms, VigorRetryPolicyAlgorithmsSchema } from "./algorithms"
 import { VigorRetryError, VigorRetryRequestError } from "./error"
 import { VigorRetryPolicyBase, VigorRetryPolicySchema } from "./policy"
@@ -31,6 +31,7 @@ export type VigorRetrySchema<
 /** What `request()` resolves to: the pipeline's result, or what `settings.default` returns. */
 export type VigorRetryResult<T extends VigorRetrySchema<T>> =
     | VigorExcludeDefault<VigorRetryContextSchema<T>["result"]>
+    | VigorExcludeDefault<VigorRetryErrorPipeResult<T>>
     | VigorReturnType<T["policy"]["settings"]["default"]>
 
 /** The builder `T` becomes after merging `P` in (with strategy tree `S`). */
@@ -353,7 +354,7 @@ export class VigorRetry<
                         if(middleware._mode === "fluent") {
                             ctx.flags.doRetry = await middleware.func(ctx.error)
                         } else {
-                            ctx = (await middleware.func(ctx, trace({
+                            ctx = (await middleware.func(ctx as any, trace({
                                 proceedRetry,
                                 cancelRetry
                             })) ?? ctx) as typeof ctx
@@ -379,7 +380,7 @@ export class VigorRetry<
                         if(middleware._mode === "fluent") {
                             await middleware.func(ctx.error)
                         } else {
-                            ctx = (await middleware.func(ctx, trace({
+                            ctx = (await middleware.func(ctx as any, trace({
                                 throwError,
                                 setDelay
                             })) ?? ctx) as typeof ctx
@@ -434,7 +435,7 @@ export class VigorRetry<
                     if(middleware._mode === "fluent") {
                         await middleware.func(ctx.error)
                     } else {
-                        ctx = (await middleware.func(ctx, trace({
+                        ctx = (await middleware.func(ctx as any, trace({
                             setResult,
                             throwError,
                             proceedRestart,

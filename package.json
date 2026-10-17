@@ -1,6 +1,6 @@
 {
   "name": "vigor-fetch",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "description": "Smart, zero-dependency HTTP client with self-healing retries for rate-limited servers.",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

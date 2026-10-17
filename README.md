@@ -358,6 +358,13 @@ Every stage takes a mode as the first argument: `"fluent"` (return a plain value
 )
 ```
 
+**The returned context replaces `ctx`** — at runtime and in the types. Return values are only checked for being context-shaped; what you change is what carries on:
+
+- Returning `ctx` (sync or `async`) changes nothing, so the types stay those of the finished builder — a middleware registered before `.cast()`, `.apiMap()` or `.target()` doesn't freeze the result at that point.
+- Every key you change is overwritten from then on: `({ ...ctx, record: { traceId } })` in `before` types `ctx.record` in every later stage, and `({ ...ctx, result: x })` in `after`/`onResult` makes `x` the result (and what the next `onResult` receives). A fluent `onResult`'s return value — awaited — overwrites `result` the same way.
+- Keys the runtime sets itself are reset where it sets them: `result` (and fetch's `response`) at the start of `after`, so changing `result` in `before` has no effect. A `result` changed in `onError` joins the result type as what a recovered request (`setResult`) resolves to.
+- Each stage's context is its own: `retryIf`/`onRetry`/`onError` see what their stage's earlier middlewares changed, not `before`'s/`after`'s, since those may not have run.
+
 | Stage | Runs | Intercept API |
 |---|---|---|
 | `before` | Before the request is sent | `throwError`, `setOptions`, `setHeaders`, `setBody` |

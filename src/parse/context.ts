@@ -1,8 +1,9 @@
 import { createBrand, VigorBrand, VigorDefault, VigorDefaultType } from "@core/symbol"
 import { VigorParsePolicyBase } from "./policy"
 import type { VigorParsePolicySchema, VigorParseSchema } from "./main"
-import type { VigorParsePipeInitialContext, VigorParsePipeResult, VigorParsePipeStepVoid, VigorParsePipeStepResult } from "./middlewares"
-import type { VigorDeepMerge } from "@core/types"
+import type { VigorParsePipeResult } from "./middlewares"
+import type { VigorCastResult, VigorContextReset, VigorContextStage } from "@core/types"
+import type { VigorExcludeDefault } from "@core/symbol"
 import type { VigorParseTimeline } from "./timeline"
 
 /**
@@ -32,35 +33,41 @@ export type VigorParseContextSchema<
     policy: T["policy"]
 }
 
-/** Context shape seen by `before` middlewares — parsing hasn't run yet. */
+/** The result before any middleware: a `raw` parse's target, else `.cast<T>()`'s (`unknown` without one). */
+export type VigorParseNaturalResult<
+    T extends VigorParseSchema<T>
+> = T["policy"]["settings"]["raw"] extends true
+    ? VigorExcludeDefault<T["policy"]["target"]>
+    : VigorCastResult<T["cast"], unknown>
+
+/**
+ * Context seen by `before` middlewares — parsing hasn't run yet.
+ *
+ * Each stage's context is defined on its own — the runtime's view at that
+ * point — with whatever the stage's earlier intercept middlewares changed by
+ * returning a different context (see `VigorContextStage`).
+ */
 export type VigorParseBeforeContextSchema<
     T extends VigorParseSchema<T>
-> = VigorParseContextSchema<T, VigorDefaultType>
+> = VigorContextStage<VigorParseContextSchema<T, VigorDefaultType>, T["policy"]["middlewares"]["before"]>
 
-/** Context shape seen by `after` middlewares — reflects the result after `before` has run. */
+/** Context seen by `after` middlewares — `result` is the parsed one; what `before` changed otherwise carries over. */
 export type VigorParseAfterContextSchema<
     T extends VigorParseSchema<T>
-> = VigorParsePipeStepResult<
-    VigorDeepMerge<
-        VigorParsePipeStepVoid<
-            VigorParsePipeInitialContext<T>,
-            T["policy"]["middlewares"]["before"]
-        >,
-        // before -> 실제 파싱 실행 -> after 순서이므로, after 시작 시점의 result는
-        // before가 무엇을 리턴했든 실제 파싱 결과 타입으로 재설정되어야 한다.
-        { result: VigorParsePipeInitialContext<T>["result"] },
-        { result: "replace" }
-    >,
+> = VigorContextStage<
+    VigorContextReset<VigorParseBeforeContextSchema<T>, { result: VigorParseNaturalResult<T> }>,
     T["policy"]["middlewares"]["after"]
 >
 
-/** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
+/** Context seen by `onResult` middlewares — `ctx.result` is what the earlier `onResult` ones left it as. */
 export type VigorParseOnResultContextSchema<
     T extends VigorParseSchema<T>
-> = VigorParsePipeStepResult<
-    VigorParseAfterContextSchema<T>,
-    T["policy"]["middlewares"]["onResult"]
->
+> = VigorContextStage<VigorParseAfterContextSchema<T>, T["policy"]["middlewares"]["onResult"], "result">
+
+/** Context seen by `onError` middlewares — every strategy failed (or a middleware threw). */
+export type VigorParseOnErrorContextSchema<
+    T extends VigorParseSchema<T>
+> = VigorContextStage<VigorParseContextSchema<T>, T["policy"]["middlewares"]["onError"]>
 
 /** Context shape once the full middleware pipeline (including `onResult`) has run. */
 export type VigorParseResultContextSchema<

@@ -5,7 +5,7 @@ import { VigorApply } from "@core/HKT"
 import { VigorFetchTypeLambda } from "./TL"
 import { VigorFetchPolicySettings, VigorFetchPolicySettingsSchema } from "./settings"
 import { VigorBuiltin, VigorDeepMerge, VigorDeepPartial, VigorNoExtraKeys, VigorReturnType, VigorSimplify } from "@core/types"
-import { VigorFetchNaturalFor, VigorFetchPipeResult, VigorFetchPolicyMiddlewares, VigorFetchPolicyMiddlewaresApi, VigorFetchPolicyMiddlewaresSchema } from "./middlewares"
+import { VigorFetchErrorPipeResult, VigorFetchNaturalFor, VigorFetchPipeResult, VigorFetchPolicyMiddlewares, VigorFetchPolicyMiddlewaresApi, VigorFetchPolicyMiddlewaresSchema } from "./middlewares"
 import { adoptVigorFetchError, VigorFetchError, VigorFetchRequestError } from "./error"
 import { VigorRetry, VigorRetryBase, VigorRetrySchema } from "@retry/main"
 import { VigorParse, VigorParseBase, VigorParseSchema } from "@parse/main"
@@ -34,6 +34,7 @@ export type VigorFetchSchema<
 /** What `request()` resolves to: the pipeline's result, or what `settings.default` returns. */
 export type VigorFetchResult<T extends VigorFetchSchema<T>> =
     | VigorExcludeDefault<VigorFetchContextSchema<T>["result"]>
+    | VigorExcludeDefault<VigorFetchErrorPipeResult<T>>
     | VigorReturnType<T["policy"]["settings"]["default"]>
 
 /** The builder `T` becomes after merging `P` in (with strategy tree `S`). */
@@ -73,7 +74,7 @@ type VigorFetchVerboseParsed<T extends VigorFetchSchema<T>, R> =
  * `status`/`response` are `null`. Only possible when one of them is set.
  */
 type VigorFetchVerboseRecovered<T extends VigorFetchSchema<T>, R> =
-    | (T["policy"]["middlewares"]["onError"] extends readonly [] ? never : VigorExcludeDefault<VigorFetchContextSchema<T>["result"]>)
+    | (T["policy"]["middlewares"]["onError"] extends readonly [] ? never : VigorExcludeDefault<VigorFetchErrorPipeResult<T>>)
     | (T["policy"]["settings"]["default"] extends VigorEmptyType ? never : VigorReturnType<T["policy"]["settings"]["default"]>) extends infer D
         ? [D] extends [never]
             ? never

@@ -3,8 +3,7 @@ import { VigorAllBase, VigorAllSchema } from "./main"
 import { VigorStatus } from "@core/status"
 import { VigorAllPolicyMiddlewaresTypeLambda } from "./TL"
 import { VigorApply } from "@core/HKT"
-import { VigorCastResult, VigorDeepMerge } from "@core/types"
-import { VigorAllNaturalResult } from "./policy"
+import { VigorDeepMerge } from "@core/types"
 import type {
     VigorAllContextSchema,
     VigorAllEachContextSchema,
@@ -55,7 +54,7 @@ export type VigorAllPolicyMiddlewaresFluent<
 
     before: { _mode: "fluent", func: (ctx: VigorAllBeforeContextSchema<T>) => void|Promise<void> }
     after: { _mode: "fluent", func: (ctx: VigorAllAfterContextSchema<T>) => void|Promise<void> }
-    onResult: { _mode: "fluent", func: (res: VigorAllOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorAllContextSchema<any>["result"]|Promise<VigorAllContextSchema<any>["result"]> }
+    onResult: { _mode: "fluent", func: (res: VigorAllOnResultContextSchema<T>["result"]) => VigorAllContextSchema<any>["result"]|Promise<VigorAllContextSchema<any>["result"]> }
 }
 
 export type VigorAllPolicyMiddlewaresApi<
@@ -143,46 +142,7 @@ export class VigorAllPolicyMiddlewares<
     }
 }
 
-export type VigorAllPipeInitialContext<
-    T extends VigorAllSchema<T>,
-    R = VigorCastResult<T["cast"], VigorAllNaturalResult<T>>
-> = VigorDeepMerge<Omit<VigorAllContextSchema<T, unknown>, "result">, { result: R }>
-
-export type VigorAllPipeStepVoid<
-    Ctx,
-    Arr
-> = Arr extends [infer Head, ...infer Tail]
-    ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
-        ? VigorAllPipeStepVoid<Ret, Tail>
-        : VigorAllPipeStepVoid<Ctx, Tail>
-    : Ctx
-
-export type VigorAllPipeStepResult<
-    Ctx,
-    Arr
-> = Arr extends [infer Head, ...infer Tail]
-    ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
-        ? VigorAllPipeStepResult<Ret, Tail>
-        : Head extends { _mode: "fluent", func: (...args: any[]) => infer FR }
-            ? VigorAllPipeStepResult<VigorDeepMerge<Ctx, { result: FR }, { result: "replace" }>, Tail>
-            : VigorAllPipeStepResult<Ctx, Tail>
-    : Ctx
-
-export type VigorAllPolicyMiddlewaresPipe<
-    T extends VigorAllSchema<T>
-> = VigorAllPipeStepResult<
-    VigorAllPipeStepVoid<
-        VigorAllPipeStepVoid<
-            VigorAllPipeInitialContext<T>,
-            T["policy"]["middlewares"]["before"]
-        >,
-        T["policy"]["middlewares"]["after"]
-    >,
-    T["policy"]["middlewares"]["onResult"]
->
-
+/** The result the batch-level pipeline produces: the tasks' outcomes (or `.cast<T>()`'s), through `after` and `onResult`. */
 export type VigorAllPipeResult<
     T extends VigorAllSchema<T>
-> = VigorAllPolicyMiddlewaresPipe<T> extends { result: infer R }
-    ? R
-    : never
+> = VigorAllOnResultContextSchema<T>["result"]

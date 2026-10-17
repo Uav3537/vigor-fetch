@@ -1,8 +1,8 @@
 import { createBrand, VigorBrand, VigorDefault, VigorDefaultType } from "@core/symbol"
 import { VigorFetchPolicyBase } from "./policy"
 import type { VigorFetchSchema } from "./main"
-import { VigorFetchPipeInitialContext, VigorFetchPipeResult, VigorFetchPipeStepVoid, VigorFetchPipeStepResult } from "./middlewares"
-import type { VigorDeepMerge } from "@core/types"
+import type { VigorFetchNaturalResult, VigorFetchPipeResult } from "./middlewares"
+import type { VigorCastResult, VigorContextReset, VigorContextStage } from "@core/types"
 import type { VigorFetchTimeline } from "./timeline"
 
 export type VigorFetchExtraOptions = Omit<RequestInit, "method" | "headers" | "body" | "signal">
@@ -40,33 +40,40 @@ export type VigorFetchContextSchema<
     policy: T["policy"]
 }
 
-/** Context shape seen by `before` middlewares — the request hasn't been sent yet. */
+/**
+ * Context seen by `before` middlewares — the request hasn't been sent yet.
+ *
+ * Each stage's context is defined on its own — the runtime's view at that
+ * point — with whatever the stage's earlier intercept middlewares changed by
+ * returning a different context (see `VigorContextStage`).
+ */
 export type VigorFetchBeforeContextSchema<
     T extends VigorFetchSchema<T>
-> = VigorFetchContextSchema<T, VigorDefaultType>
+> = VigorContextStage<VigorFetchContextSchema<T, VigorDefaultType>, T["policy"]["middlewares"]["before"]>
 
-/** Context shape seen by `after` middlewares — reflects the result after `before` has run. */
+/**
+ * Context seen by `after` middlewares — `response` and the parsed `result`
+ * are set; what `before` changed otherwise carries over. `Natural` is the
+ * result before `.cast<T>()` (one API-map status's, when followed per status).
+ */
 export type VigorFetchAfterContextSchema<
-    T extends VigorFetchSchema<T>
-> = VigorFetchPipeStepResult<
-    VigorDeepMerge<
-        VigorFetchPipeStepVoid<
-            VigorFetchPipeInitialContext<T>,
-            T["policy"]["middlewares"]["before"]
-        >,
-        { result: VigorFetchPipeInitialContext<T>["result"] },
-        { result: "replace" }
-    >,
+    T extends VigorFetchSchema<T>,
+    Natural = VigorFetchNaturalResult<T>
+> = VigorContextStage<
+    VigorContextReset<VigorFetchBeforeContextSchema<T>, { result: VigorCastResult<T["cast"], Natural>, response: Response }>,
     T["policy"]["middlewares"]["after"]
 >
 
-/** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
+/** Context seen by `onResult` middlewares — `ctx.result` is what the earlier `onResult` ones left it as. */
 export type VigorFetchOnResultContextSchema<
+    T extends VigorFetchSchema<T>,
+    Natural = VigorFetchNaturalResult<T>
+> = VigorContextStage<VigorFetchAfterContextSchema<T, Natural>, T["policy"]["middlewares"]["onResult"], "result">
+
+/** Context seen by `onError` middlewares — the request failed. */
+export type VigorFetchOnErrorContextSchema<
     T extends VigorFetchSchema<T>
-> = VigorFetchPipeStepResult<
-    VigorFetchAfterContextSchema<T>,
-    T["policy"]["middlewares"]["onResult"]
->
+> = VigorContextStage<VigorFetchContextSchema<T>, T["policy"]["middlewares"]["onError"]>
 
 /** Context shape once the full middleware pipeline (including `onResult`) has run. */
 export type VigorFetchResultContextSchema<

@@ -3,11 +3,11 @@ import { VigorFetchBase, VigorFetchSchema } from "./main"
 import { VigorStatus } from "@core/status"
 import { VigorFetchPolicyMiddlewaresTypeLambda } from "./TL"
 import { VigorApply } from "@core/HKT"
-import { VigorCastResult, VigorDeepMerge } from "@core/types"
+import { VigorDeepMerge } from "@core/types"
 import { VigorFetchOptions } from "./context"
 import type { VigorParseResult, VigorParseSchema } from "@parse/main"
 import type { VigorApiNoMatchType, VigorApiResponse, VigorResolvedMethod } from "./api"
-import type { VigorFetchContextSchema, VigorFetchBeforeContextSchema, VigorFetchAfterContextSchema, VigorFetchOnResultContextSchema } from "./context"
+import type { VigorFetchContextSchema, VigorFetchBeforeContextSchema, VigorFetchAfterContextSchema, VigorFetchOnResultContextSchema, VigorFetchOnErrorContextSchema } from "./context"
 
 export type VigorFetchPolicyMiddlewaresSchema<
     T extends VigorFetchSchema<T>
@@ -36,7 +36,7 @@ export type VigorFetchPolicyMiddlewaresFluent<
 
     before: { _mode: "fluent", func: (ctx: VigorFetchBeforeContextSchema<T>) => void|Promise<void> }
     after: { _mode: "fluent", func: (ctx: VigorFetchAfterContextSchema<T>) => void|Promise<void> }
-    onResult: { _mode: "fluent", func: (res: VigorFetchOnResultContextSchema<T> extends { result: infer R } ? R : never) => VigorFetchContextSchema<any>["result"]|Promise<VigorFetchContextSchema<any>["result"]> }
+    onResult: { _mode: "fluent", func: (res: VigorFetchOnResultContextSchema<T>["result"]) => VigorFetchContextSchema<any>["result"]|Promise<VigorFetchContextSchema<any>["result"]> }
     onError: { _mode: "fluent", func: (err: VigorFetchContextSchema<T>["error"]) => void|Promise<void> }
 }
 
@@ -60,7 +60,7 @@ export type VigorFetchPolicyMiddlewaresIntercept<
     before: { _mode: "intercept", func: (ctx: VigorFetchBeforeContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "throwError"|"setOptions"|"setHeaders"|"setBody">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>> }
     after: { _mode: "intercept", func: (ctx: VigorFetchAfterContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>> }
     onResult: { _mode: "intercept", func: (ctx: VigorFetchOnResultContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult"|"throwError">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>> }
-    onError: { _mode: "intercept", func: (ctx: VigorFetchContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult"|"throwError"|"proceedRestart"|"cancelRestart">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>> }
+    onError: { _mode: "intercept", func: (ctx: VigorFetchOnErrorContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult"|"throwError"|"proceedRestart"|"cancelRestart">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>> }
 }
 
 /**
@@ -160,56 +160,17 @@ export type VigorFetchNaturalFor<T extends VigorFetchSchema<T>, D> =
         ? VigorFetchParsedResult<T>
         : Exclude<D, VigorApiNoMatchType> | (VigorApiNoMatchType extends D ? VigorFetchParsedResult<T> : never)
 
-export type VigorFetchPipeInitialContext<
-    T extends VigorFetchSchema<T>,
-    R = VigorCastResult<T["cast"], VigorFetchNaturalResult<T>>
-> = VigorDeepMerge<Omit<VigorFetchContextSchema<T, unknown>, "result">, { result: R }>
-
-export type VigorFetchPipeStepVoid<
-    Ctx,
-    Arr
-> = Arr extends [infer Head, ...infer Tail]
-    ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
-        ? VigorFetchPipeStepVoid<Ret, Tail>
-        : VigorFetchPipeStepVoid<Ctx, Tail>
-    : Ctx
-
-export type VigorFetchPipeStepResult<
-    Ctx,
-    Arr
-> = Arr extends [infer Head, ...infer Tail]
-    ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
-        ? VigorFetchPipeStepResult<Ret, Tail>
-        : Head extends { _mode: "fluent", func: (...args: any[]) => infer FR }
-            ? VigorFetchPipeStepResult<VigorDeepMerge<Ctx, { result: FR }, { result: "replace" }>, Tail>
-            : VigorFetchPipeStepResult<Ctx, Tail>
-    : Ctx
-
-export type VigorFetchPolicyMiddlewaresPipe<
-    T extends VigorFetchSchema<T>,
-    Natural = VigorFetchNaturalResult<T>
-> = VigorFetchPipeStepVoid<
-    VigorFetchPipeStepResult<
-        VigorFetchPipeStepResult<
-            VigorFetchPipeStepVoid<
-                VigorFetchPipeInitialContext<T, VigorCastResult<T["cast"], Natural>>,
-                T["policy"]["middlewares"]["before"]
-            >,
-            T["policy"]["middlewares"]["after"]
-        >,
-        T["policy"]["middlewares"]["onResult"]
-    >,
-    T["policy"]["middlewares"]["onError"]
->
-
 /**
- * The result the middleware pipeline produces. `Natural` is the result it
+ * The result the success pipeline produces. `Natural` is the result it
  * starts from (before `.cast<T>()`): by default the API map's whole success
  * union, or one status's data to follow that status through the pipeline.
  */
 export type VigorFetchPipeResult<
     T extends VigorFetchSchema<T>,
     Natural = VigorFetchNaturalResult<T>
-> = VigorFetchPolicyMiddlewaresPipe<T, Natural> extends { result: infer R }
-    ? R
-    : never
+> = VigorFetchOnResultContextSchema<T, Natural>["result"]
+
+/** `ctx.result` once the `onError` middlewares ran — what a recovered request (`setResult`) resolves to, as far as types go. */
+export type VigorFetchErrorPipeResult<
+    T extends VigorFetchSchema<T>
+> = VigorFetchOnErrorContextSchema<T>["result"]

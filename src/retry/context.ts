@@ -1,8 +1,8 @@
 import { createBrand, VigorBrand, VigorDefault, VigorDefaultType } from "@core/symbol"
 import { VigorRetryPolicyBase } from "./policy"
 import type { VigorRetrySchema } from "./main"
-import type { VigorRetryPipeInitialContext, VigorRetryPipeResult, VigorRetryPipeStepVoid, VigorRetryPipeStepResult } from "./middlewares"
-import type { VigorDeepMerge } from "@core/types"
+import type { VigorRetryPipeResult } from "./middlewares"
+import type { VigorCastResult, VigorContextReset, VigorContextStage, VigorReturnType } from "@core/types"
 import type { VigorRetryTimeline } from "./timeline"
 
 /**
@@ -41,33 +41,50 @@ export type VigorRetryContextSchema<
     policy: T["policy"]
 }
 
-/** Context shape seen by `before` middlewares — the target hasn't run yet, so there's no result. */
+/** The result before any middleware: `.cast<T>()`'s, else the target's return type. */
+export type VigorRetryNaturalResult<
+    T extends VigorRetrySchema<T>
+> = VigorCastResult<T["cast"], VigorReturnType<T["policy"]["target"]>>
+
+/**
+ * Context seen by `before` middlewares — the target hasn't run yet, so
+ * there's no result.
+ *
+ * Each stage's context is defined on its own — the runtime's view at that
+ * point — with whatever the stage's earlier intercept middlewares changed by
+ * returning a different context (see `VigorContextStage`).
+ */
 export type VigorRetryBeforeContextSchema<
     T extends VigorRetrySchema<T>
-> = VigorRetryContextSchema<T, VigorDefaultType>
+> = VigorContextStage<VigorRetryContextSchema<T, VigorDefaultType>, T["policy"]["middlewares"]["before"]>
 
-/** Context shape seen by `after` middlewares — reflects the result after `before` has run. */
+/** Context seen by `after` middlewares — `result` is the target's; what `before` changed otherwise carries over. */
 export type VigorRetryAfterContextSchema<
     T extends VigorRetrySchema<T>
-> = VigorRetryPipeStepResult<
-    VigorDeepMerge<
-        VigorRetryPipeStepVoid<
-            VigorRetryPipeInitialContext<T>,
-            T["policy"]["middlewares"]["before"]
-        >,
-        { result: VigorRetryPipeInitialContext<T>["result"] },
-        { result: "replace" }
-    >,
+> = VigorContextStage<
+    VigorContextReset<VigorRetryBeforeContextSchema<T>, { result: VigorRetryNaturalResult<T> }>,
     T["policy"]["middlewares"]["after"]
 >
 
-/** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
+/** Context seen by `onResult` middlewares — `ctx.result` is what the earlier `onResult` ones left it as. */
 export type VigorRetryOnResultContextSchema<
     T extends VigorRetrySchema<T>
-> = VigorRetryPipeStepResult<
-    VigorRetryAfterContextSchema<T>,
-    T["policy"]["middlewares"]["onResult"]
->
+> = VigorContextStage<VigorRetryAfterContextSchema<T>, T["policy"]["middlewares"]["onResult"], "result">
+
+/** Context seen by `retryIf` middlewares — an attempt failed. */
+export type VigorRetryRetryIfContextSchema<
+    T extends VigorRetrySchema<T>
+> = VigorContextStage<VigorRetryContextSchema<T>, T["policy"]["middlewares"]["retryIf"]>
+
+/** Context seen by `onRetry` middlewares — `retryIf` decided to retry. */
+export type VigorRetryOnRetryContextSchema<
+    T extends VigorRetrySchema<T>
+> = VigorContextStage<VigorRetryRetryIfContextSchema<T>, T["policy"]["middlewares"]["onRetry"]>
+
+/** Context seen by `onError` middlewares — the run failed. */
+export type VigorRetryOnErrorContextSchema<
+    T extends VigorRetrySchema<T>
+> = VigorContextStage<VigorRetryContextSchema<T>, T["policy"]["middlewares"]["onError"]>
 
 /** Context shape once the full middleware pipeline (including `onResult`) has run. */
 export type VigorRetryResultContextSchema<

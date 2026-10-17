@@ -200,3 +200,71 @@ export type VigorMergeStrategy<T> =
             : {
                 [K in keyof T]?: VigorMergeStrategy<T[K]> | VigorMergeMode
             }
+
+
+/** Whether `A` and `B` are the same type. */
+export type VigorIsSame<A, B> =
+    (<X>() => X extends A ? 1 : 2) extends (<X>() => X extends B ? 1 : 2) ? true : false
+
+/**
+ * What an intercept middleware changed: the keys of the context `A` it
+ * returned whose type differs from the context `P` it was given (or that
+ * `P` lacks). Returning `ctx` itself — or `{ ...ctx }` — changes nothing, so
+ * the pipeline keeps its own, current types instead of the snapshot `P` was
+ * computed from when the middleware was registered. An `any` return, or an
+ * `any` key, changes nothing either.
+ */
+export type VigorContextChanges<P, A> =
+    0 extends (1 & A)
+        ? {}
+        // Fast path: `return ctx` hands back exactly the type it was given.
+        : VigorIsSame<A, P> extends true
+            ? {}
+        : A extends object
+            ? {
+                [K in keyof A as K extends keyof P
+                    ? VigorIsSame<A[K], P[K]> extends true
+                        ? never
+                        : 0 extends (1 & A[K]) ? never : K
+                    : K
+                ]: A[K]
+            }
+            : {}
+
+/** `Ctx` with `Changes` written over it — `Ctx` itself when nothing changed. */
+export type VigorContextApply<Ctx, Changes> =
+    [keyof Changes] extends [never]
+        ? Ctx
+        : VigorContextReset<Ctx, Changes>
+
+/** `Ctx` with `Fresh`'s keys given `Fresh`'s types — what the runtime (re)sets at a stage's start. One mapped type, so it stays cheap. */
+export type VigorContextReset<Ctx, Fresh> = {
+    [K in keyof Ctx | keyof Fresh]: K extends keyof Fresh ? Fresh[K] : K extends keyof Ctx ? Ctx[K] : never
+}
+
+/** One middleware applied to `Ctx` — see {@link VigorContextStage}. */
+type VigorContextStep<Ctx, M, FluentKey extends PropertyKey> =
+    M extends { _mode: "intercept", func: (ctx: infer P, ...args: any[]) => infer Ret }
+        ? VigorContextApply<Ctx, VigorContextChanges<P, Awaited<Ret>>>
+        : M extends { _mode: "fluent", func: (...args: any[]) => infer FR }
+            ? [FluentKey] extends [never]
+                ? Ctx
+                : VigorContextApply<Ctx, { [K in FluentKey]: Awaited<FR> }>
+            : Ctx
+
+/**
+ * Folds one stage's middleware list over `Ctx`, the way the runtime runs
+ * it: an intercept middleware's returned context (awaited) overwrites the
+ * keys it changed (see {@link VigorContextChanges}), and a fluent one's
+ * return value (awaited) overwrites `FluentKey` — `never` for a stage whose
+ * fluent middlewares return nothing. A list that isn't a tuple, whose order
+ * is unknown, leaves `Ctx` as it is. An `any` list — a stage of a
+ * `Vigor*Schema<any>`, as in the schemas' own constraints — gives `any`, so
+ * any registered middleware satisfies them.
+ */
+export type VigorContextStage<Ctx, List, FluentKey extends PropertyKey = never> =
+    0 extends (1 & List)
+        ? any
+        : List extends readonly [infer Head, ...infer Tail]
+            ? VigorContextStage<VigorContextStep<Ctx, Head, FluentKey>, Tail, FluentKey>
+            : Ctx
