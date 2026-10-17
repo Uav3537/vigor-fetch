@@ -2,6 +2,8 @@ import { createBrand, VigorBrand } from "@core/symbol"
 import { VigorAllPolicySettingsBase, VigorAllPolicySettingsSchema } from "./settings"
 import { VigorAllPolicyMiddlewaresBase, VigorAllPolicyMiddlewaresSchema } from "./middlewares"
 import type { VigorAllSchema } from "./main"
+import type { VigorResultError } from "@core/error"
+import type { VigorAllError } from "./error"
 
 /**
  * A single task. It receives an `AbortSignal` that fires when the task's
@@ -44,17 +46,37 @@ export const VigorAllPolicyBase = {
 } as const satisfies VigorAllPolicySchema<any>
 
 /**
+ * What a failed task's slot holds as `error`: whatever the task threw, or
+ * `VigorAllError("TIMED_OUT")` when it hit `settings.timeout`.
+ */
+export type VigorAllTaskError = VigorResultError<VigorAllError<"TIMED_OUT", any>>
+
+/**
+ * One task's outcome, shaped like `requestVerbose()`'s envelope: what it
+ * returned (or what `onErrorEach` recovered it with), or what it failed with.
+ */
+export type VigorAllSettled<V> =
+    | { success: true, data: V, error: null }
+    | { success: false, data: null, error: VigorAllTaskError }
+
+/**
  * The naturally-inferred (pre-`.cast<T>()`) result type of `.request()`.
- * When `onlySuccess` is left `false` (the default), every task's result
- * lands at its own tuple slot — `.target(() => 1 as const, () => "a")`
- * infers `[1, "a"]`, not `unknown[]`. `onlySuccess: true` filters the
- * array at runtime to an arbitrary length, so it falls back to a plain
- * array type instead of a tuple.
+ * When `onlySuccess` is left `false` (the default), every task gets its own
+ * tuple slot holding its outcome — `.target(() => 1 as const, () => "a")`
+ * infers `[VigorAllSettled<1>, VigorAllSettled<"a">]` — so a failed task
+ * can't pass for a result. `onlySuccess: true` keeps only the successful
+ * tasks' values, at runtime an arbitrary length, so it becomes an array of
+ * the tasks' result types (`(1 | "a")[]`). A non-literal `boolean` could be
+ * either, so it gives the union of both.
  */
 export type VigorAllNaturalResult<
     T extends VigorAllSchema<T>
-> = T["policy"]["settings"]["onlySuccess"] extends true
-    ? unknown[]
-    : T["policy"]["target"] extends readonly VigorAllTask[]
-        ? VigorAllTasksTuple<T["policy"]["target"]>
-        : unknown[]
+> = T["policy"]["target"] extends readonly VigorAllTask[]
+    ? VigorAllResultFor<T["policy"]["settings"]["onlySuccess"], VigorAllTasksTuple<T["policy"]["target"]>>
+    : unknown[]
+
+/** Distributes over `boolean`, so a non-literal `onlySuccess` yields both shapes. */
+type VigorAllResultFor<OnlySuccess, Tuple extends readonly unknown[]> =
+    OnlySuccess extends true
+        ? Tuple[number][]
+        : { [K in keyof Tuple]: VigorAllSettled<Tuple[K]> }

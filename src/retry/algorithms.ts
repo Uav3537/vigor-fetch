@@ -3,7 +3,7 @@ import { VigorRetryBase, VigorRetrySchema } from "./main"
 import { VigorStatus } from "@core/status"
 import { VigorRetryPolicyAlgorithmsTypeLambda, VigorRetryPolicyAlgorithmsConstantTypeLambda, VigorRetryPolicyAlgorithmsLinearTypeLambda, VigorRetryPolicyAlgorithmsBackoffTypeLambda, VigorRetryPolicyAlgorithmsCustomTypeLambda } from "./TL"
 import { VigorApply } from "@core/HKT"
-import { VigorDeepPartial } from "@core/types"
+import { VigorDeepPartial, VigorDeepMerge, VigorNoExtraKeys } from "@core/types"
 import { VigorRetryError } from "./error"
 
 /** Returns a random offset in the range `[-jitter, +jitter]` to randomize a computed delay. */
@@ -53,11 +53,11 @@ export class VigorRetryPolicyAlgorithmsConstant<
         return new VigorRetryPolicyAlgorithmsConstant(config as unknown as VigorRetryPolicyAlgorithmsConstantSchema<any>) as any
     }
     /** Sets the amount of random jitter added to the computed delay. */
-    public jitter<const N extends VigorRetryPolicyAlgorithmsConstantSchema<any>["jitter"]>(num: N) {
+    public jitter<const N extends VigorRetryPolicyAlgorithmsConstantSchema<any>["jitter"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsConstantTypeLambda, VigorDeepMerge<T, { jitter: N }>> {
         return this._next({ jitter: num } as const)
     }
     /** Sets the fixed delay interval, in milliseconds. */
-    public interval<const N extends VigorRetryPolicyAlgorithmsConstantSchema<any>["interval"]>(num: N) {
+    public interval<const N extends VigorRetryPolicyAlgorithmsConstantSchema<any>["interval"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsConstantTypeLambda, VigorDeepMerge<T, { interval: N }>> {
         return this._next({ interval: num } as const)
     }
 }
@@ -116,23 +116,23 @@ export class VigorRetryPolicyAlgorithmsLinear<
         return new VigorRetryPolicyAlgorithmsLinear(config as unknown as VigorRetryPolicyAlgorithmsLinearSchema<any>) as any
     }
     /** Sets the amount of random jitter added to the computed delay. */
-    public jitter<const N extends VigorRetryPolicyAlgorithmsLinearSchema<any>["jitter"]>(num: N) {
+    public jitter<const N extends VigorRetryPolicyAlgorithmsLinearSchema<any>["jitter"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsLinearTypeLambda, VigorDeepMerge<T, { jitter: N }>> {
         return this._next({ jitter: num } as const)
     }
     /** Sets the initial delay, in milliseconds, before the first retry. */
-    public initial<const N extends VigorRetryPolicyAlgorithmsLinearSchema<any>["initial"]>(num: N) {
+    public initial<const N extends VigorRetryPolicyAlgorithmsLinearSchema<any>["initial"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsLinearTypeLambda, VigorDeepMerge<T, { initial: N }>> {
         return this._next({ initial: num } as const)
     }
     /** Sets how much the delay grows, in milliseconds, per attempt. */
-    public increment<const N extends VigorRetryPolicyAlgorithmsLinearSchema<any>["increment"]>(num: N) {
+    public increment<const N extends VigorRetryPolicyAlgorithmsLinearSchema<any>["increment"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsLinearTypeLambda, VigorDeepMerge<T, { increment: N }>> {
         return this._next({ increment: num } as const)
     }
     /** Sets the minimum allowed delay, in milliseconds. */
-    public minDelay<const N extends VigorRetryPolicyAlgorithmsLinearSchema<any>["minDelay"]>(num: N) {
+    public minDelay<const N extends VigorRetryPolicyAlgorithmsLinearSchema<any>["minDelay"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsLinearTypeLambda, VigorDeepMerge<T, { minDelay: N }>> {
         return this._next({ minDelay: num } as const)
     }
     /** Sets the maximum allowed delay, in milliseconds. */
-    public maxDelay<const N extends VigorRetryPolicyAlgorithmsLinearSchema<any>["maxDelay"]>(num: N) {
+    public maxDelay<const N extends VigorRetryPolicyAlgorithmsLinearSchema<any>["maxDelay"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsLinearTypeLambda, VigorDeepMerge<T, { maxDelay: N }>> {
         return this._next({ maxDelay: num } as const)
     }
 }
@@ -193,27 +193,27 @@ export class VigorRetryPolicyAlgorithmsBackoff<
         return new VigorRetryPolicyAlgorithmsBackoff(config as unknown as VigorRetryPolicyAlgorithmsBackoffSchema<any>) as any
     }
     /** Sets the amount of random jitter added to the computed delay. */
-    public jitter<const N extends VigorRetryPolicyAlgorithmsBackoffSchema<any>["jitter"]>(num: N) {
+    public jitter<const N extends VigorRetryPolicyAlgorithmsBackoffSchema<any>["jitter"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsBackoffTypeLambda, VigorDeepMerge<T, { jitter: N }>> {
         return this._next({ jitter: num } as const)
     }
     /** Sets the initial delay, in milliseconds, before backoff growth is applied. */
-    public initial<const N extends VigorRetryPolicyAlgorithmsBackoffSchema<any>["initial"]>(num: N) {
+    public initial<const N extends VigorRetryPolicyAlgorithmsBackoffSchema<any>["initial"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsBackoffTypeLambda, VigorDeepMerge<T, { initial: N }>> {
         return this._next({ initial: num } as const)
     }
     /** Sets the exponential growth factor applied per attempt. */
-    public multiplier<const N extends VigorRetryPolicyAlgorithmsBackoffSchema<any>["multiplier"]>(num: N) {
+    public multiplier<const N extends VigorRetryPolicyAlgorithmsBackoffSchema<any>["multiplier"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsBackoffTypeLambda, VigorDeepMerge<T, { multiplier: N }>> {
         return this._next({ multiplier: num } as const)
     }
     /** Sets the base unit, in milliseconds, the multiplier is scaled by. */
-    public unit<const N extends VigorRetryPolicyAlgorithmsBackoffSchema<any>["unit"]>(num: N) {
+    public unit<const N extends VigorRetryPolicyAlgorithmsBackoffSchema<any>["unit"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsBackoffTypeLambda, VigorDeepMerge<T, { unit: N }>> {
         return this._next({ unit: num } as const)
     }
     /** Sets the minimum allowed delay, in milliseconds. */
-    public minDelay<const N extends VigorRetryPolicyAlgorithmsBackoffSchema<any>["minDelay"]>(num: N) {
+    public minDelay<const N extends VigorRetryPolicyAlgorithmsBackoffSchema<any>["minDelay"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsBackoffTypeLambda, VigorDeepMerge<T, { minDelay: N }>> {
         return this._next({ minDelay: num } as const)
     }
     /** Sets the maximum allowed delay, in milliseconds. */
-    public maxDelay<const N extends VigorRetryPolicyAlgorithmsBackoffSchema<any>["maxDelay"]>(num: N) {
+    public maxDelay<const N extends VigorRetryPolicyAlgorithmsBackoffSchema<any>["maxDelay"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsBackoffTypeLambda, VigorDeepMerge<T, { maxDelay: N }>> {
         return this._next({ maxDelay: num } as const)
     }
 }
@@ -277,19 +277,19 @@ export class VigorRetryPolicyAlgorithmsCustom<
         return new VigorRetryPolicyAlgorithmsCustom(config as unknown as VigorRetryPolicyAlgorithmsCustomSchema<any>) as any
     }
     /** Sets the amount of random jitter added to the computed delay. */
-    public jitter<const N extends VigorRetryPolicyAlgorithmsCustomSchema<any>["jitter"]>(num: N) {
+    public jitter<const N extends VigorRetryPolicyAlgorithmsCustomSchema<any>["jitter"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsCustomTypeLambda, VigorDeepMerge<T, { jitter: N }>> {
         return this._next({ jitter: num } as const)
     }
     /** Sets the minimum allowed delay, in milliseconds. */
-    public minDelay<const N extends VigorRetryPolicyAlgorithmsCustomSchema<any>["minDelay"]>(num: N) {
+    public minDelay<const N extends VigorRetryPolicyAlgorithmsCustomSchema<any>["minDelay"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsCustomTypeLambda, VigorDeepMerge<T, { minDelay: N }>> {
         return this._next({ minDelay: num } as const)
     }
     /** Sets the maximum allowed delay, in milliseconds. */
-    public maxDelay<const N extends VigorRetryPolicyAlgorithmsCustomSchema<any>["maxDelay"]>(num: N) {
+    public maxDelay<const N extends VigorRetryPolicyAlgorithmsCustomSchema<any>["maxDelay"]>(num: N): VigorApply<VigorRetryPolicyAlgorithmsCustomTypeLambda, VigorDeepMerge<T, { maxDelay: N }>> {
         return this._next({ maxDelay: num } as const)
     }
     /** Sets the user-supplied function computing the raw delay for an attempt. */
-    public target<const N extends VigorExcludeEmpty<VigorRetryPolicyAlgorithmsCustomSchema<any>["target"]>>(func: N) {
+    public target<const N extends VigorExcludeEmpty<VigorRetryPolicyAlgorithmsCustomSchema<any>["target"]>>(func: N): VigorApply<VigorRetryPolicyAlgorithmsCustomTypeLambda, VigorDeepMerge<T, { target: N }>> {
         return this._next({ target: func } as const)
     }
 }
@@ -327,36 +327,36 @@ export class VigorRetryPolicyAlgorithms<
 
     /** Switches to the constant-interval delay algorithm. */
     public constant<
-        const N extends VigorDeepPartial<Omit<VigorRetryPolicyAlgorithmsConstantSchema<any>, "_tag" | "__brand">>
-    >(input?: N) {
-        const leaf = this._merge(VigorRetryPolicyAlgorithmsConstantBase, input ?? {})
+        const N extends VigorDeepPartial<Omit<VigorRetryPolicyAlgorithmsConstantSchema<any>, "_tag" | "__brand">> = {}
+    >(input?: N & VigorNoExtraKeys<N, VigorDeepPartial<Omit<VigorRetryPolicyAlgorithmsConstantSchema<any>, "_tag" | "__brand">>>): VigorApply<VigorRetryPolicyAlgorithmsTypeLambda, VigorDeepMerge<T, { policy: { algorithms: VigorDeepMerge<typeof VigorRetryPolicyAlgorithmsConstantBase, N> } }, { policy: { algorithms: "replace" } }>> {
+        const leaf = this._merge(VigorRetryPolicyAlgorithmsConstantBase, input ?? {}) as VigorDeepMerge<typeof VigorRetryPolicyAlgorithmsConstantBase, N>
         return this._next({
             policy: { algorithms: leaf }
         } as const, { policy: { algorithms: "replace" } })
     }
     /** Switches to the linearly-increasing delay algorithm. */
     public linear<
-        const N extends VigorDeepPartial<Omit<VigorRetryPolicyAlgorithmsLinearSchema<any>, "_tag" | "__brand">>
-    >(input?: N) {
-        const leaf = this._merge(VigorRetryPolicyAlgorithmsLinearBase, input ?? {})
+        const N extends VigorDeepPartial<Omit<VigorRetryPolicyAlgorithmsLinearSchema<any>, "_tag" | "__brand">> = {}
+    >(input?: N & VigorNoExtraKeys<N, VigorDeepPartial<Omit<VigorRetryPolicyAlgorithmsLinearSchema<any>, "_tag" | "__brand">>>): VigorApply<VigorRetryPolicyAlgorithmsTypeLambda, VigorDeepMerge<T, { policy: { algorithms: VigorDeepMerge<typeof VigorRetryPolicyAlgorithmsLinearBase, N> } }, { policy: { algorithms: "replace" } }>> {
+        const leaf = this._merge(VigorRetryPolicyAlgorithmsLinearBase, input ?? {}) as VigorDeepMerge<typeof VigorRetryPolicyAlgorithmsLinearBase, N>
         return this._next({
             policy: { algorithms: leaf }
         } as const, { policy: { algorithms: "replace" } })
     }
     /** Switches to the exponential-backoff delay algorithm. */
     public backoff<
-        const N extends VigorDeepPartial<Omit<VigorRetryPolicyAlgorithmsBackoffSchema<any>, "_tag" | "__brand">>
-    >(input?: N) {
-        const leaf = this._merge(VigorRetryPolicyAlgorithmsBackoffBase, input ?? {})
+        const N extends VigorDeepPartial<Omit<VigorRetryPolicyAlgorithmsBackoffSchema<any>, "_tag" | "__brand">> = {}
+    >(input?: N & VigorNoExtraKeys<N, VigorDeepPartial<Omit<VigorRetryPolicyAlgorithmsBackoffSchema<any>, "_tag" | "__brand">>>): VigorApply<VigorRetryPolicyAlgorithmsTypeLambda, VigorDeepMerge<T, { policy: { algorithms: VigorDeepMerge<typeof VigorRetryPolicyAlgorithmsBackoffBase, N> } }, { policy: { algorithms: "replace" } }>> {
+        const leaf = this._merge(VigorRetryPolicyAlgorithmsBackoffBase, input ?? {}) as VigorDeepMerge<typeof VigorRetryPolicyAlgorithmsBackoffBase, N>
         return this._next({
             policy: { algorithms: leaf }
         } as const, { policy: { algorithms: "replace" } })
     }
     /** Switches to a user-supplied custom delay algorithm. */
     public custom<
-        const N extends VigorDeepPartial<Omit<VigorRetryPolicyAlgorithmsCustomSchema<any>, "_tag" | "__brand">>
-    >(input?: N) {
-        const leaf = this._merge(VigorRetryPolicyAlgorithmsCustomBase, input ?? {})
+        const N extends VigorDeepPartial<Omit<VigorRetryPolicyAlgorithmsCustomSchema<any>, "_tag" | "__brand">> = {}
+    >(input?: N & VigorNoExtraKeys<N, VigorDeepPartial<Omit<VigorRetryPolicyAlgorithmsCustomSchema<any>, "_tag" | "__brand">>>): VigorApply<VigorRetryPolicyAlgorithmsTypeLambda, VigorDeepMerge<T, { policy: { algorithms: VigorDeepMerge<typeof VigorRetryPolicyAlgorithmsCustomBase, N> } }, { policy: { algorithms: "replace" } }>> {
+        const leaf = this._merge(VigorRetryPolicyAlgorithmsCustomBase, input ?? {}) as VigorDeepMerge<typeof VigorRetryPolicyAlgorithmsCustomBase, N>
         return this._next({
             policy: { algorithms: leaf }
         } as const, { policy: { algorithms: "replace" } })

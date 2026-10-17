@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import http from "node:http";
 import * as esm from "./dist/index.js";
 import * as cjs from "./dist/index.cjs";
 
@@ -78,6 +79,36 @@ await test("Fetch module can fetch a real endpoint and parse JSON", async () => 
 
     assert.equal(typeof result, "object", "fetch() did not resolve with a parsed object");
     assert.ok("id" in result, "parsed response is missing expected shape");
+});
+
+await test("Fetch requestVerbose() carries the response's status, null when there is none", async () => {
+    const server = http.createServer((req, res) => {
+        res.statusCode = req.url === "/created" ? 201 : 404;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ url: req.url }));
+    });
+    await new Promise((resolve) => server.listen(0, resolve));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    try {
+        const ok = await vigor.fetch(origin).path("created").requestVerbose();
+        assert.equal(ok.success, true, "request did not succeed");
+        assert.equal(ok.status, 201, "status is not the response's");
+        assert.ok(ok.response instanceof Response, "response is not the Response");
+        assert.deepEqual(ok.data, { url: "/created" }, "data is not the parsed body");
+
+        const failed = await vigor.fetch(origin).path("missing").requestVerbose();
+        assert.equal(failed.success, false, "a 404 did not fail");
+        assert.equal(failed.status, null, "a failure has a status");
+        assert.equal(failed.response, null, "a failure has a response");
+        assert.equal(failed.error.data.status, 404, "the failure's status is not on its error");
+
+        const recovered = await vigor.fetch(origin).path("missing").settings({ default: () => "fallback" }).requestVerbose();
+        assert.equal(recovered.data, "fallback", "default did not recover");
+        assert.equal(recovered.status, null, "a recovered result has a status");
+        assert.equal(recovered.response, null, "a recovered result has a response");
+    } finally {
+        server.close();
+    }
 });
 
 await test("CJS build's vigor works the same as ESM's", async () => {

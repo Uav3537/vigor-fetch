@@ -1,3 +1,4 @@
+import { VigorDeepMerge } from "@core/types"
 import { createBrand, VigorBrand, VigorEmpty, VigorEmptyType, VigorExcludeEmpty } from "@core/symbol"
 import { VigorRetryBase, VigorRetrySchema } from "./main"
 import { VigorStatus } from "@core/status"
@@ -10,6 +11,11 @@ export type VigorRetryPolicySettingsSchema<
 > = {
     __brand: VigorBrand<"Retry", "Policy<Settings<Schema">
 
+    /**
+     * Whether `requestVerbose()` records a timeline. Off by default: the
+     * `timeline` stays empty and no context snapshots are taken.
+     */
+    debug: boolean
     default: ((ctx: VigorRetryContextSchema<T>) => any|Promise<any>) | VigorEmptyType
     maxAttempts: number
     maxRestarts: number
@@ -19,6 +25,7 @@ export type VigorRetryPolicySettingsSchema<
 export const VigorRetryPolicySettingsBase = {
     __brand: createBrand("Retry", "Policy<Settings<Schema"),
 
+    debug: false,
     default: VigorEmpty,
     maxAttempts: 5,
     maxRestarts: 3,
@@ -39,27 +46,35 @@ export class VigorRetryPolicySettings<
     }
 
     /** Sets the fallback value/factory used when the target ultimately fails. */
-    public default<const N extends VigorExcludeEmpty<VigorRetrySchema<any>["policy"]["settings"]["default"]>>(func: N) {
+    public default<const N extends VigorExcludeEmpty<VigorRetryPolicySettingsSchema<T>["default"]>>(func: N): VigorApply<VigorRetryPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { default: N } } }>> {
         return this._next({
             policy: { settings: { default: func } }
         } as const)
     }
     /** Sets the maximum number of retry attempts before giving up. */
-    public maxAttempts<const N extends VigorRetrySchema<any>["policy"]["settings"]["maxAttempts"]>(num: N) {
+    public maxAttempts<const N extends VigorRetrySchema<any>["policy"]["settings"]["maxAttempts"]>(num: N): VigorApply<VigorRetryPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { maxAttempts: N } } }>> {
         return this._next({
             policy: { settings: { maxAttempts: num } }
         })
     }
     /** Sets the maximum number of full restarts allowed. */
-    public maxRestarts<const N extends VigorRetrySchema<any>["policy"]["settings"]["maxRestarts"]>(num: N) {
+    public maxRestarts<const N extends VigorRetrySchema<any>["policy"]["settings"]["maxRestarts"]>(num: N): VigorApply<VigorRetryPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { maxRestarts: N } } }>> {
         return this._next({
             policy: { settings: { maxRestarts: num } }
         })
     }
     /** Sets the timeout, in milliseconds, for a single attempt. */
-    public timeout<const N extends VigorRetrySchema<any>["policy"]["settings"]["timeout"]>(num: N) {
+    public timeout<const N extends VigorRetrySchema<any>["policy"]["settings"]["timeout"]>(num: N): VigorApply<VigorRetryPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { timeout: N } } }>> {
         return this._next({
             policy: { settings: { timeout: num } }
         })
+    }
+    /**
+     * Turns timeline recording on or off (off by default). Off, the
+     * `timeline` of `requestVerbose()` stays empty and no context snapshots
+     * are taken, so it costs nothing unless you're debugging.
+     */
+    public debug<const N extends VigorRetrySchema<any>["policy"]["settings"]["debug"]>(bool: N): VigorApply<VigorRetryPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { debug: N } } }>> {
+        return this._next({ policy: { settings: { debug: bool } } } as const)
     }
 }

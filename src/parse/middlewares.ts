@@ -142,7 +142,7 @@ export type VigorParsePipeStepResult<
     ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
         ? VigorParsePipeStepResult<Ret, Tail>
         : Head extends { _mode: "fluent", func: (...args: any[]) => infer FR }
-            ? VigorParsePipeStepResult<VigorDeepMerge<Ctx, { result: FR }>, Tail>
+            ? VigorParsePipeStepResult<VigorDeepMerge<Ctx, { result: FR }, { result: "replace" }>, Tail>
             : VigorParsePipeStepResult<Ctx, Tail>
     : Ctx
 

@@ -3,6 +3,7 @@ import { VigorRetryPolicyBase } from "./policy"
 import type { VigorRetrySchema } from "./main"
 import type { VigorRetryPipeInitialContext, VigorRetryPipeResult, VigorRetryPipeStepVoid, VigorRetryPipeStepResult } from "./middlewares"
 import type { VigorDeepMerge } from "@core/types"
+import type { VigorRetryTimeline } from "./timeline"
 
 /**
  * Base shape shared by every retry context variant. `R` is the type of
@@ -26,10 +27,17 @@ export type VigorRetryContextSchema<
     flags: {
         doRetry: boolean
         doRestart: boolean
+        /** `breakRetry()` was called: the attempt's error ends the run without retrying. */
         brokeRetry: boolean
+        /** An external abort signal fired: the run stops without retrying. */
+        aborted: boolean
+        /** The current attempt hit `settings.timeout`. Reset at the start of every attempt. */
+        timedOut: boolean
         overridden: boolean
     },
     record: Record<string, any>,
+    /** Everything this `requestVerbose()` call has gone through so far, restarts included. */
+    timeline: VigorRetryTimeline,
     policy: T["policy"]
 }
 
@@ -47,7 +55,8 @@ export type VigorRetryAfterContextSchema<
             VigorRetryPipeInitialContext<T>,
             T["policy"]["middlewares"]["before"]
         >,
-        { result: VigorRetryPipeInitialContext<T>["result"] }
+        { result: VigorRetryPipeInitialContext<T>["result"] },
+        { result: "replace" }
     >,
     T["policy"]["middlewares"]["after"]
 >
@@ -78,8 +87,11 @@ export const VigorRetryContextBase = {
         doRetry: true,
         doRestart: false,
         brokeRetry: false,
+        aborted: false,
+        timedOut: false,
         overridden: false
     },
     record: {},
+    timeline: [] as VigorRetryTimeline,
     policy: VigorRetryPolicyBase
 } as const satisfies VigorRetryContextSchema<any>

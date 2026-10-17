@@ -274,7 +274,7 @@ export type VigorRetryPipeStepResult<
     ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
         ? VigorRetryPipeStepResult<Ret, Tail>
         : Head extends { _mode: "fluent", func: (...args: any[]) => infer FR }
-            ? VigorRetryPipeStepResult<VigorDeepMerge<Ctx, { result: FR }>, Tail>
+            ? VigorRetryPipeStepResult<VigorDeepMerge<Ctx, { result: FR }, { result: "replace" }>, Tail>
             : VigorRetryPipeStepResult<Ctx, Tail>
     : Ctx
 
@@ -285,7 +285,7 @@ export type VigorRetryPipeStepRetryIf<
     ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
         ? VigorRetryPipeStepRetryIf<Ret, Tail>
         : Head extends { _mode: "fluent", func: (...args: any[]) => infer FR }
-            ? VigorRetryPipeStepRetryIf<VigorDeepMerge<Ctx, { flags: { doRetry: FR } }>, Tail>
+            ? VigorRetryPipeStepRetryIf<VigorDeepMerge<Ctx, { flags: { doRetry: FR } }, { flags: { doRetry: "replace" } }>, Tail>
             : VigorRetryPipeStepRetryIf<Ctx, Tail>
     : Ctx
 

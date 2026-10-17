@@ -3,6 +3,7 @@ import { VigorAllPolicyBase } from "./policy"
 import type { VigorAllSchema } from "./main"
 import type { VigorAllPipeInitialContext, VigorAllPipeResult, VigorAllPipeStepVoid, VigorAllPipeStepResult } from "./middlewares"
 import type { VigorDeepMerge } from "@core/types"
+import type { VigorAllTimeline } from "./timeline"
 
 /**
  * Base shape shared by every batch-level `all` context variant. `R` is the
@@ -18,6 +19,8 @@ export type VigorAllContextSchema<
     result: R
     policy: T["policy"]
     record: Record<string, any>
+    /** Everything this `requestVerbose()` call has gone through so far. */
+    timeline: VigorAllTimeline
 }
 
 /** Context shape seen by `before` middlewares — no task has run yet. */
@@ -35,7 +38,8 @@ export type VigorAllAfterContextSchema<
     >,
     // before -> 모든 태스크 실행 -> after 순서이므로, after 시작 시점의 result는
     // before가 무엇을 리턴했든 실제 집계 결과 타입으로 재설정되어야 한다.
-    { result: VigorAllPipeInitialContext<T>["result"] }
+    { result: VigorAllPipeInitialContext<T>["result"] },
+    { result: "replace" }
 >
 
 /** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
@@ -59,7 +63,8 @@ export const VigorAllContextBase = {
 
     result: VigorDefault,
     policy: VigorAllPolicyBase,
-    record: {}
+    record: {},
+    timeline: [] as VigorAllTimeline
 } as const satisfies VigorAllContextSchema<any>
 
 /** Per-task context, seen by `beforeEach` / `afterEach` / `onErrorEach`. */

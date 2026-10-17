@@ -1,3 +1,44 @@
+/**
+ * The `error` of a failed result envelope: `E` is the module's own typed
+ * errors, and `{} | null | undefined` stands for anything else that reached
+ * the caller — an error thrown by your own target/middleware, an abort
+ * reason, a network `TypeError`, even a bare `throw null`.
+ *
+ * Because of that tail, reading `error.code` directly doesn't compile. Narrow
+ * first (`isVigorRetryError(err)`), and `code` then narrows `data` to that
+ * code's payload.
+ */
+type VigorResultError<E> = E | {} | null | undefined;
+type VigorErrorOptions<D, T> = {
+    cause?: unknown;
+    data: D;
+    method: string;
+    context?: T;
+};
+/**
+ * Base class for all Vigor error types. Subclasses (`VigorRetryError`,
+ * `VigorFetchError`, `VigorParseError`, `VigorAllError`) fix `C`, `D`, and
+ * `T` to their own error-code union, data shape, and context shape.
+ *
+ * @typeParam C - Union of error codes for the subclass.
+ * @typeParam D - Shape of the structured error data.
+ * @typeParam T - Shape of the domain context.
+ */
+declare abstract class VigorError<C extends string, D, T> extends Error {
+    readonly timestamp: Date;
+    readonly cause?: unknown;
+    readonly code: C;
+    readonly data: D;
+    readonly method: string;
+    readonly context: T | undefined;
+    /**
+     * @param code - Machine-readable error code.
+     * @param message - Human-readable message (rendered after the `[code]` prefix).
+     * @param options - Additional error metadata (cause, data, method, context).
+     */
+    constructor(code: C, message: string, options: VigorErrorOptions<D, T>);
+}
+
 interface VigorTypeLambda {
     readonly In?: unknown;
     readonly Target: unknown;
@@ -92,9 +133,18 @@ declare abstract class VigorStatus<Base, Config extends Base, TL extends VigorTy
     /**
      * Deep-merges `target` onto `source`, honoring an optional per-path
      * `strategy` tree. Objects merge key by key, arrays concatenate (unless
-     * `"replace"` is specified), and any other value is overwritten.
+     * `"replace"` is specified, or `arrayMode` is `"replace"`), and any other
+     * value — including `null` — is overwritten. Only `undefined` keeps the
+     * source value.
      */
-    protected _merge<A, B>(source: A, target: B, strategy?: unknown): VigorDeepMerge<A, B>;
+    protected _merge<A, B>(source: A, target: B, strategy?: unknown, arrayMode?: "concat" | "replace"): VigorDeepMerge<A, B>;
+    /**
+     * Snapshots a runtime context for a timeline entry: a `_merge` deep clone
+     * of everything but `timeline`, so later changes to `ctx` don't reach it.
+     */
+    protected _snapshot<C extends {
+        timeline: unknown;
+    }>(ctx: C): Omit<C, "timeline">;
     /** The default/base config this builder was constructed with. */
     get base(): Base;
     /** The current, merged config for this builder instance. */
@@ -105,11 +155,19 @@ type VigorAllPolicySettingsSchema<T extends VigorAllSchema<T>> = {
     __brand: VigorBrand<"All", "Policy<Settings<Schema">;
     concurrency: number;
     onlySuccess: boolean;
+    /** Per-task timeout in milliseconds. `VigorEmpty` (the default), `0`, a negative value, or `Infinity` disables it. */
+    timeout: number | VigorEmptyType;
+    /** When `true`, the first task failure (not recovered by `onErrorEach`) aborts the remaining tasks and fails the batch. */
+    failFast: boolean;
 };
 declare const VigorAllPolicySettingsBase: {
     readonly __brand: VigorBrand<"All", "Policy<Settings<Schema">;
     readonly concurrency: 5;
     readonly onlySuccess: false;
+    readonly timeout: symbol & {
+        __brand: VigorBrand<"Core", "Symbol_Empty">;
+    };
+    readonly failFast: false;
 };
 /** Immutable builder for an all-policy's general settings. */
 declare class VigorAllPolicySettings<T extends VigorAllSchema<T> = typeof VigorAllBase> extends VigorStatus<VigorAllSchema<any>, T, VigorAllPolicySettingsTypeLambda> {
@@ -131,11 +189,33 @@ declare class VigorAllPolicySettings<T extends VigorAllSchema<T> = typeof VigorA
             };
         };
     }>>>;
+    /** Sets the per-task timeout, in milliseconds. A task exceeding it fails with `TIMED_OUT`. */
+    timeout<const N extends VigorExcludeEmpty<VigorAllSchema<any>["policy"]["settings"]["timeout"]>>(num: N): VigorAllPolicySettings<VigorAllIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly timeout: N;
+            };
+        };
+    }>>>;
+    /** When enabled, the first unrecovered task failure aborts the remaining tasks and fails the batch with that error. */
+    failFast<const N extends VigorAllSchema<any>["policy"]["settings"]["failFast"]>(bool: N): VigorAllPolicySettings<VigorAllIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly failFast: N;
+            };
+        };
+    }>>>;
 }
 
-type VigorAllTask = () => unknown | Promise<unknown>;
+/**
+ * A single task. It receives an `AbortSignal` that fires when the task's
+ * `timeout` elapses, the batch's `abortSignals` abort, or `failFast` stops
+ * the batch — tasks that ignore it keep running in the background, but
+ * their result is discarded.
+ */
+type VigorAllTask = (signal: AbortSignal) => unknown | Promise<unknown>;
 /** Extracts (and unwraps `Promise`/`Awaited`) the result type of a single task. */
-type VigorAllTaskResult<F> = F extends () => infer R ? Awaited<R> : never;
+type VigorAllTaskResult<F> = F extends (...args: any[]) => infer R ? Awaited<R> : never;
 /**
  * Maps a tuple of tasks to a tuple of their (awaited) result types, in the
  * same order and length as `N`. If `N` isn't a literal tuple (e.g. the
@@ -147,16 +227,22 @@ type VigorAllTasksTuple<N extends readonly VigorAllTask[]> = {
 type VigorAllPolicySchema<T extends VigorAllSchema<T>> = {
     __brand: VigorBrand<"All", "Policy<Schema">;
     target: VigorAllTask[];
+    abortSignals: AbortSignal[];
     settings: VigorAllPolicySettingsSchema<T>;
     middlewares: VigorAllPolicyMiddlewaresSchema<T>;
 };
 declare const VigorAllPolicyBase: {
     readonly __brand: VigorBrand<"All", "Policy<Schema">;
     readonly target: [];
+    readonly abortSignals: [];
     readonly settings: {
         readonly __brand: VigorBrand<"All", "Policy<Settings<Schema">;
         readonly concurrency: 5;
         readonly onlySuccess: false;
+        readonly timeout: symbol & {
+            __brand: VigorBrand<"Core", "Symbol_Empty">;
+        };
+        readonly failFast: false;
     };
     readonly middlewares: {
         readonly __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
@@ -177,6 +263,160 @@ declare const VigorAllPolicyBase: {
  * array type instead of a tuple.
  */
 type VigorAllNaturalResult<T extends VigorAllSchema<T>> = T["policy"]["settings"]["onlySuccess"] extends true ? unknown[] : T["policy"]["target"] extends readonly VigorAllTask[] ? VigorAllTasksTuple<T["policy"]["target"]> : unknown[];
+
+/**
+ * One recorded timeline entry: which `action` happened, its `content`, `now`,
+ * the `Date.now()` timestamp it happened at (a number rather than a `Date`,
+ * to keep entries light), and `ctx`, a snapshot of the context at that moment.
+ * `E` maps each action name to its content; `C` is the snapshot's shape.
+ */
+type VigorTimelineItem<E, C> = {
+    [K in keyof E]: {
+        action: K;
+        content: E[K];
+        now: number;
+        ctx: C;
+    };
+}[keyof E];
+/** The ordered list of everything a single `requestVerbose()` call went through. */
+type VigorTimeline<E, C> = VigorTimelineItem<E, C>[];
+/**
+ * A context as stored on a timeline entry: everything but `timeline` itself,
+ * which would otherwise nest every earlier entry inside each new one.
+ */
+type VigorTimelineSnapshot<Ctx> = Omit<Ctx, "timeline">;
+/**
+ * The `PROCESS_HANDLING` event shared by every module, for the run's own
+ * lifecycle steps. `H` maps each step `type` to its `data`.
+ */
+type VigorTimelineProcessEvents<H> = {
+    PROCESS_HANDLING: {
+        [K in keyof H]: {
+            type: K;
+            data: H[K];
+        };
+    }[keyof H];
+};
+/**
+ * Middleware-stage events shared by every module. `Stages` maps each stage
+ * name to its middleware list, and `Apis` maps each stage to the intercept
+ * API object its middlewares receive (`{}` for a stage without one).
+ */
+type VigorTimelineMiddlewareEvents<Stages extends Record<string, readonly unknown[]>, Apis extends {
+    [S in keyof Stages]: object;
+}> = {
+    MIDDLEWARE_LOOP_STARTED: {
+        [S in keyof Stages]: {
+            stage: S;
+            middlewares: Stages[S];
+        };
+    }[keyof Stages];
+    MIDDLEWARE_LOOP_ENDED: {
+        [S in keyof Stages]: {
+            stage: S;
+            middlewares: Stages[S];
+            took: number;
+        };
+    }[keyof Stages];
+    MIDDLEWARE_API_CALLED: {
+        [S in keyof Stages]: {
+            [A in keyof Apis[S]]: {
+                stage: S;
+                middleware: Stages[S][number];
+                method: A;
+                args: Apis[S][A] extends (...args: infer P) => any ? P : never;
+            };
+        }[keyof Apis[S]];
+    }[keyof Stages];
+};
+/**
+ * Creates the recorder a `requestRuntime()` writes into. Entries are pushed
+ * straight onto `timeline`, so the same array keeps growing across restarts.
+ * `snapshot` is called on every entry, so it must read the current context.
+ */
+declare function createVigorTimelineRecorder<E, C>(timeline: VigorTimeline<E, C>, snapshot: () => C): {
+    add: <K extends keyof E>(action: K, content: E[K]) => void;
+    stage: <M>(stage: string, middlewares: readonly M[], run: (middleware: M, trace: <A extends object>(api: A) => A) => unknown) => Promise<void>;
+};
+
+type VigorAllTimelineStages = Omit<VigorAllPolicyMiddlewaresSchema<any>, "__brand">;
+type VigorAllTimelineApis = {
+    [S in "before" | "after" | "onResult"]: Parameters<VigorAllPolicyMiddlewaresIntercept<any>[S]["func"]>[1];
+} & {
+    beforeEach: {};
+    afterEach: {};
+    onErrorEach: {
+        setResult: (r: unknown) => void;
+    };
+};
+/** Lifecycle steps recorded as `PROCESS_HANDLING`, mapped to their `data`. */
+type VigorAllProcessHandler = {
+    REQUEST_START: {
+        tasks: number;
+        concurrency: number;
+    };
+    /** The batch failed. */
+    REQUEST_ERROR: {
+        error: unknown;
+    };
+};
+/** Every action an all timeline can record, mapped to its content. */
+type VigorAllTimelineEvents = VigorTimelineProcessEvents<VigorAllProcessHandler> & VigorTimelineMiddlewareEvents<VigorAllTimelineStages, VigorAllTimelineApis> & {
+    TASK_STARTED: {
+        index: number;
+    };
+    /** A task settled. `success` is `false` only when it failed and `onErrorEach` didn't recover it. */
+    TASK_ENDED: {
+        index: number;
+        success: boolean;
+        took: number;
+    };
+    /** A task threw (including `TIMED_OUT`), before `onErrorEach` runs. */
+    TASK_ERROR: {
+        index: number;
+        error: unknown;
+    };
+};
+/**
+ * A context as stored on a timeline entry: the batch context, or for the
+ * per-task actions (`TASK_*` and the `*Each` stages) that task's context.
+ */
+type VigorAllTimelineSnapshot = VigorTimelineSnapshot<VigorAllContextSchema<any>> | VigorAllEachContextSchema<any>;
+type VigorAllTimeline = VigorTimeline<VigorAllTimelineEvents, VigorAllTimelineSnapshot>;
+
+/**
+ * Base shape shared by every batch-level `all` context variant. `R` is the
+ * type of `result` at the point the context is observed — computed per
+ * pipeline stage instead of being fixed on the schema.
+ */
+type VigorAllContextSchema<T extends VigorAllSchema<T>, R = VigorAllPipeResult<T> | VigorDefaultType> = {
+    __brand: VigorBrand<"All", "Context<Schema">;
+    result: R;
+    policy: T["policy"];
+    record: Record<string, any>;
+    /** Everything this `requestVerbose()` call has gone through so far. */
+    timeline: VigorAllTimeline;
+};
+/** Context shape seen by `before` middlewares — no task has run yet. */
+type VigorAllBeforeContextSchema<T extends VigorAllSchema<T>> = VigorAllContextSchema<T, VigorDefaultType>;
+/** Context shape seen by `after` middlewares — every task has settled, reflecting whatever `before` changed. */
+type VigorAllAfterContextSchema<T extends VigorAllSchema<T>> = VigorDeepMerge<VigorAllPipeStepVoid<VigorAllPipeInitialContext<T>, T["policy"]["middlewares"]["before"]>, {
+    result: VigorAllPipeInitialContext<T>["result"];
+}>;
+/** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
+type VigorAllOnResultContextSchema<T extends VigorAllSchema<T>> = VigorAllPipeStepResult<VigorAllPipeStepVoid<VigorAllAfterContextSchema<T>, T["policy"]["middlewares"]["after"]>, T["policy"]["middlewares"]["onResult"]>;
+/** Per-task context, seen by `beforeEach` / `afterEach` / `onErrorEach`. */
+type VigorAllEachContextSchema<T extends VigorAllSchema<T>> = {
+    __brand: VigorBrand<"All", "EachContext<Schema">;
+    /** Position of this task in the `target` list. */
+    index: number;
+    result: unknown | VigorDefaultType;
+    error: unknown;
+    flags: {
+        overridden: boolean;
+    };
+    record: Record<string, any>;
+};
 
 /** Per-task hook (`beforeEach` / `afterEach`) — observes/mutates a single task's context, no return value. */
 type VigorAllEachMiddlewareFn = (ctx: VigorAllEachContextSchema<any>) => void | Promise<void>;
@@ -366,33 +606,16 @@ type VigorAllPipeResult<T extends VigorAllSchema<T>> = VigorAllPolicyMiddlewares
     result: infer R;
 } ? R : never;
 
-/**
- * Base shape shared by every batch-level `all` context variant. `R` is the
- * type of `result` at the point the context is observed — computed per
- * pipeline stage instead of being fixed on the schema.
- */
-type VigorAllContextSchema<T extends VigorAllSchema<T>, R = VigorAllPipeResult<T> | VigorDefaultType> = {
-    __brand: VigorBrand<"All", "Context<Schema">;
-    result: R;
-    policy: T["policy"];
-    record: Record<string, any>;
-};
-/** Context shape seen by `before` middlewares — no task has run yet. */
-type VigorAllBeforeContextSchema<T extends VigorAllSchema<T>> = VigorAllContextSchema<T, VigorDefaultType>;
-/** Context shape seen by `after` middlewares — every task has settled, reflecting whatever `before` changed. */
-type VigorAllAfterContextSchema<T extends VigorAllSchema<T>> = VigorAllPipeStepVoid<VigorAllPipeInitialContext<T>, T["policy"]["middlewares"]["before"]>;
-/** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
-type VigorAllOnResultContextSchema<T extends VigorAllSchema<T>> = VigorAllPipeStepResult<VigorAllPipeStepVoid<VigorAllAfterContextSchema<T>, T["policy"]["middlewares"]["after"]>, T["policy"]["middlewares"]["onResult"]>;
-/** Per-task context, seen by `beforeEach` / `afterEach` / `onErrorEach`. */
-type VigorAllEachContextSchema<T extends VigorAllSchema<T>> = {
-    __brand: VigorBrand<"All", "EachContext<Schema">;
-    result: unknown | VigorDefaultType;
-    error: unknown;
-    flags: {
-        overrided: boolean;
-    };
-    record: Record<string, any>;
-};
+type VigorAllIn<T> = T extends VigorAllSchema<any> ? T : never;
+interface VigorAllTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorAll<VigorAllIn<this["In"]>>;
+}
+interface VigorAllPolicySettingsTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorAllPolicySettings<VigorAllIn<this["In"]>>;
+}
+interface VigorAllPolicyMiddlewaresTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorAllPolicyMiddlewares<VigorAllIn<this["In"]>>;
+}
 
 type VigorAllSchema<T extends VigorAllSchema<T>> = {
     __brand: VigorBrand<"All", "Schema">;
@@ -405,10 +628,15 @@ declare const VigorAllBase: {
     readonly policy: {
         readonly __brand: VigorBrand<"All", "Policy<Schema">;
         readonly target: [];
+        readonly abortSignals: [];
         readonly settings: {
             readonly __brand: VigorBrand<"All", "Policy<Settings<Schema">;
             readonly concurrency: 5;
             readonly onlySuccess: false;
+            readonly timeout: symbol & {
+                __brand: VigorBrand<"Core", "Symbol_Empty">;
+            };
+            readonly failFast: false;
         };
         readonly middlewares: {
             readonly __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
@@ -436,6 +664,12 @@ declare class VigorAll<T extends VigorAllSchema<T> = typeof VigorAllBase> extend
     target<const N extends VigorAllTask[]>(...funcs: N): VigorAll<VigorAllIn<VigorDeepMerge<T, {
         readonly policy: {
             readonly target: N;
+        };
+    }>>>;
+    /** Sets external abort signals that, when aborted, cancel the remaining tasks and fail the batch. */
+    abortSignals<const N extends VigorAllSchema<T>["policy"]["abortSignals"]>(...sig: N): VigorAll<VigorAllIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly abortSignals: N;
         };
     }>>>;
     /** Configures the all-policy's general settings (concurrency, onlySuccess). */
@@ -483,295 +717,58 @@ declare class VigorAll<T extends VigorAllSchema<T> = typeof VigorAllBase> extend
     }>>>;
     /** Runs all tasks and returns the results array directly, throwing on final failure. */
     request<R = VigorExcludeDefault<VigorAllContextSchema<T>["result"]>>(): Promise<R>;
-    /** Runs all tasks and returns a result/error envelope instead of throwing. */
+    /**
+     * Runs all tasks and returns a result/error envelope instead of throwing,
+     * along with the `timeline` of everything the batch went through.
+     */
     requestVerbose<R = VigorExcludeDefault<VigorAllContextSchema<T>["result"]>>(): Promise<{
         success: false;
         data: null;
-        error: unknown;
+        error: VigorAllRequestError<T>;
+        timeline: VigorAllTimeline;
     } | {
         success: true;
         data: R;
         error: null;
+        timeline: VigorAllTimeline;
     }>;
     /** Internal execution loop implementing the bounded-concurrency worker pool and the batch-level before/after/onResult pipeline. */
     private requestRuntime;
 }
 
-type VigorAllIn<T> = T extends VigorAllSchema<any> ? T : never;
-interface VigorAllTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorAll<VigorAllIn<this["In"]>>;
-}
-interface VigorAllPolicySettingsTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorAllPolicySettings<VigorAllIn<this["In"]>>;
-}
-interface VigorAllPolicyMiddlewaresTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorAllPolicyMiddlewares<VigorAllIn<this["In"]>>;
-}
-
-type VigorFetchPolicyMiddlewaresSchema<T extends VigorFetchSchema<T>> = {
-    __brand: VigorBrand<"Fetch", "Policy<Middlewares<Schema">;
-    before: (VigorFetchPolicyMiddlewaresFluent<T>["before"] | VigorFetchPolicyMiddlewaresIntercept<T>["before"])[];
-    after: (VigorFetchPolicyMiddlewaresFluent<T>["after"] | VigorFetchPolicyMiddlewaresIntercept<T>["after"])[];
-    onResult: (VigorFetchPolicyMiddlewaresFluent<T>["onResult"] | VigorFetchPolicyMiddlewaresIntercept<T>["onResult"])[];
-    onError: (VigorFetchPolicyMiddlewaresFluent<T>["onError"] | VigorFetchPolicyMiddlewaresIntercept<T>["onError"])[];
+declare const VigorAllErrorMessageFuncs: {
+    readonly EMPTY_TARGET: (_: {}) => string;
+    readonly TIMED_OUT: ({ limit, index }: {
+        limit: number;
+        index: number;
+    }) => string;
 };
-declare const VigorFetchPolicyMiddlewaresBase: {
-    readonly __brand: VigorBrand<"Fetch", "Policy<Middlewares<Schema">;
-    readonly before: [];
-    readonly after: [];
-    readonly onResult: [];
-    readonly onError: [];
-};
-type VigorFetchPolicyMiddlewaresFluent<T extends VigorFetchSchema<T>> = {
-    __brand: VigorBrand<"Fetch", "Policy<Middlewares<Fluent<Schema">;
-    before: {
-        _mode: "fluent";
-        func: (ctx: VigorFetchBeforeContextSchema<T>) => void | Promise<void>;
-    };
-    after: {
-        _mode: "fluent";
-        func: (ctx: VigorFetchAfterContextSchema<T>) => void | Promise<void>;
-    };
-    onResult: {
-        _mode: "fluent";
-        func: (res: VigorFetchOnResultContextSchema<T> extends {
-            result: infer R;
-        } ? R : never) => VigorFetchContextSchema<any>["result"] | Promise<VigorFetchContextSchema<any>["result"]>;
-    };
-    onError: {
-        _mode: "fluent";
-        func: (err: VigorFetchContextSchema<T>["error"]) => void | Promise<void>;
-    };
-};
-type VigorFetchPolicyMiddlewaresApi<T extends VigorFetchSchema<T>> = {
-    setResult: (res: VigorFetchContextSchema<any>["result"]) => void;
-    throwError: (err: VigorFetchContextSchema<any>["error"]) => void;
-    setOptions: (opts: VigorFetchOptions) => void;
-    setHeaders: (headers: VigorFetchOptions["headers"]) => void;
-    setBody: (body: VigorFetchOptions["body"]) => void;
-    proceedRestart: () => void;
-    cancelRestart: () => void;
-};
-type VigorFetchPolicyMiddlewaresIntercept<T extends VigorFetchSchema<T>> = {
-    __brand: VigorBrand<"Fetch", "Policy<Middlewares<Intercept<Schema">;
-    before: {
-        _mode: "intercept";
-        func: (ctx: VigorFetchBeforeContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "throwError" | "setOptions" | "setHeaders" | "setBody">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>>;
-    };
-    after: {
-        _mode: "intercept";
-        func: (ctx: VigorFetchAfterContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult" | "throwError">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>>;
-    };
-    onResult: {
-        _mode: "intercept";
-        func: (ctx: VigorFetchOnResultContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult" | "throwError">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>>;
-    };
-    onError: {
-        _mode: "intercept";
-        func: (ctx: VigorFetchContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult" | "throwError" | "proceedRestart" | "cancelRestart">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>>;
-    };
-};
+type VigorAllErrorCodes = keyof typeof VigorAllErrorMessageFuncs;
+type VigorAllErrorDatas<C extends VigorAllErrorCodes> = Parameters<typeof VigorAllErrorMessageFuncs[C]> extends [infer A] ? A : undefined;
 /**
- * Immutable builder for a fetch policy's middleware pipeline (`before`,
- * `after`, `onResult`, `onError`). Each stage accepts either "fluent"
- * middleware (returns a plain value merged into the context) or
- * "intercept" middleware (receives an explicit API to mutate control flow).
+ * Every all error code as its own union member, so narrowing by `code`
+ * also narrows `data` to that code's payload.
  */
-declare class VigorFetchPolicyMiddlewares<T extends VigorFetchSchema<T> = typeof VigorFetchBase> extends VigorStatus<VigorFetchSchema<any>, T, VigorFetchPolicyMiddlewaresTypeLambda> {
-    constructor(config?: T);
-    protected _create<C>(config: C): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, C>;
-    /** Registers a middleware that runs before the request is sent. */
-    before<const N extends VigorFetchPolicyMiddlewaresFluent<T>["before"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
-        policy: {
-            middlewares: {
-                before: [{
-                    _mode: "fluent";
-                    func: N;
-                }];
-            };
-        };
-    }>>;
-    before<const N extends VigorFetchPolicyMiddlewaresIntercept<T>["before"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
-        policy: {
-            middlewares: {
-                before: [{
-                    _mode: "intercept";
-                    func: N;
-                }];
-            };
-        };
-    }>>;
-    /** Registers a middleware that runs after the response is received. */
-    after<const N extends VigorFetchPolicyMiddlewaresFluent<T>["after"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
-        policy: {
-            middlewares: {
-                after: [{
-                    _mode: "fluent";
-                    func: N;
-                }];
-            };
-        };
-    }>>;
-    after<const N extends VigorFetchPolicyMiddlewaresIntercept<T>["after"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
-        policy: {
-            middlewares: {
-                after: [{
-                    _mode: "intercept";
-                    func: N;
-                }];
-            };
-        };
-    }>>;
-    /** Registers a middleware that transforms or validates the parsed result. */
-    onResult<const N extends VigorFetchPolicyMiddlewaresFluent<T>["onResult"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
-        policy: {
-            middlewares: {
-                onResult: [{
-                    _mode: "fluent";
-                    func: N;
-                }];
-            };
-        };
-    }>>;
-    onResult<const N extends VigorFetchPolicyMiddlewaresIntercept<T>["onResult"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
-        policy: {
-            middlewares: {
-                onResult: [{
-                    _mode: "intercept";
-                    func: N;
-                }];
-            };
-        };
-    }>>;
-    /** Registers a middleware that runs when the request ultimately fails. */
-    onError<const N extends VigorFetchPolicyMiddlewaresFluent<T>["onError"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
-        policy: {
-            middlewares: {
-                onError: [{
-                    _mode: "fluent";
-                    func: N;
-                }];
-            };
-        };
-    }>>;
-    onError<const N extends VigorFetchPolicyMiddlewaresIntercept<T>["onError"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
-        policy: {
-            middlewares: {
-                onError: [{
-                    _mode: "intercept";
-                    func: N;
-                }];
-            };
-        };
-    }>>;
+type VigorAllErrors<T extends VigorAllSchema<any> = VigorAllSchema<any>> = {
+    [C in VigorAllErrorCodes]: VigorAllError<C, T>;
+}[VigorAllErrorCodes];
+/** `error` of a failed `requestVerbose()` — this module's errors, or anything else that was thrown (e.g. a task's error under `failFast`). */
+type VigorAllRequestError<T extends VigorAllSchema<any> = any> = VigorResultError<VigorAllErrors<T>>;
+/** Error type thrown by the all module. */
+declare class VigorAllError<C extends VigorAllErrorCodes, T extends VigorAllSchema<T>> extends VigorError<C, VigorAllErrorDatas<C>, VigorAllContextSchema<T>> {
+    /**
+     * @param code - One of the all module's error codes.
+     * @param options - Error metadata, including the `data` payload for `code`.
+     */
+    constructor(code: C, options: VigorErrorOptions<VigorAllErrorDatas<C>, VigorAllContextSchema<T>>);
 }
-type VigorFetchPipeInitialContext<T extends VigorFetchSchema<T>, R = VigorCastResult<T["cast"], unknown>> = VigorDeepMerge<Omit<VigorFetchContextSchema<T, unknown>, "result">, {
-    result: R;
-}>;
-type VigorFetchPipeStepVoid<Ctx, Arr> = Arr extends [infer Head, ...infer Tail] ? Head extends {
-    _mode: "intercept";
-    func: (...args: any[]) => infer Ret;
-} ? VigorFetchPipeStepVoid<Ret, Tail> : VigorFetchPipeStepVoid<Ctx, Tail> : Ctx;
-type VigorFetchPipeStepResult<Ctx, Arr> = Arr extends [infer Head, ...infer Tail] ? Head extends {
-    _mode: "intercept";
-    func: (...args: any[]) => infer Ret;
-} ? VigorFetchPipeStepResult<Ret, Tail> : Head extends {
-    _mode: "fluent";
-    func: (...args: any[]) => infer FR;
-} ? VigorFetchPipeStepResult<VigorDeepMerge<Ctx, {
-    result: FR;
-}>, Tail> : VigorFetchPipeStepResult<Ctx, Tail> : Ctx;
-type VigorFetchPolicyMiddlewaresPipe<T extends VigorFetchSchema<T>> = VigorFetchPipeStepVoid<VigorFetchPipeStepResult<VigorFetchPipeStepResult<VigorFetchPipeStepVoid<VigorFetchPipeInitialContext<T>, T["policy"]["middlewares"]["before"]>, T["policy"]["middlewares"]["after"]>, T["policy"]["middlewares"]["onResult"]>, T["policy"]["middlewares"]["onError"]>;
-type VigorFetchPipeResult<T extends VigorFetchSchema<T>> = VigorFetchPolicyMiddlewaresPipe<T> extends {
-    result: infer R;
-} ? R : never;
-
-type VigorFetchExtraOptions = Omit<RequestInit, "method" | "headers" | "body" | "signal">;
-type VigorFetchOptions = VigorFetchExtraOptions & {
-    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "CONNECT" | "TRACE";
-    headers: Record<string, string>;
-    body?: BodyInit | null;
-    signal?: AbortSignal;
-};
 /**
- * Base shape shared by every fetch context variant. `R` is the type of
- * `result` at the point the context is observed — computed per pipeline
- * stage instead of being fixed on the schema.
+ * Narrows an error from a failed result envelope to the all module's typed
+ * error union. Prefer this over a bare `instanceof`: the envelope's `{}`
+ * member makes `instanceof` widen `data` back to every code's payload,
+ * while this guard keeps `code` and `data` in sync.
  */
-type VigorFetchContextSchema<T extends VigorFetchSchema<T>, R = VigorFetchPipeResult<T> | VigorDefaultType> = {
-    __brand: VigorBrand<"Fetch", "Context<Schema">;
-    href: string;
-    response: Response | VigorDefaultType;
-    result: R;
-    error: unknown;
-    options: VigorFetchOptions | VigorDefaultType;
-    flags: {
-        overridden: boolean;
-        restarted: boolean;
-    };
-    record: Record<string, any>;
-    policy: T["policy"];
-};
-/** Context shape seen by `before` middlewares — the request hasn't been sent yet. */
-type VigorFetchBeforeContextSchema<T extends VigorFetchSchema<T>> = VigorFetchContextSchema<T, VigorDefaultType>;
-/** Context shape seen by `after` middlewares — reflects the result after `before` has run. */
-type VigorFetchAfterContextSchema<T extends VigorFetchSchema<T>> = VigorFetchPipeStepResult<VigorFetchPipeStepVoid<VigorFetchPipeInitialContext<T>, T["policy"]["middlewares"]["before"]>, T["policy"]["middlewares"]["after"]>;
-/** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
-type VigorFetchOnResultContextSchema<T extends VigorFetchSchema<T>> = VigorFetchPipeStepResult<VigorFetchAfterContextSchema<T>, T["policy"]["middlewares"]["onResult"]>;
-
-type VigorFetchPolicySettingsSchema<T extends VigorFetchSchema<T>> = {
-    __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
-    retryHeaders: string[];
-    unretryStatus: number[];
-    maxRestarts: number;
-    default: ((ctx: VigorFetchContextSchema<T>) => any | Promise<any>) | VigorEmptyType;
-};
-declare const VigorFetchPolicySettingsBase: {
-    readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
-    readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"];
-    readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
-    readonly maxRestarts: 3;
-    readonly default: symbol & {
-        __brand: VigorBrand<"Core", "Symbol_Empty">;
-    };
-};
-/** Immutable builder for a fetch policy's general settings. */
-declare class VigorFetchPolicySettings<T extends VigorFetchSchema<T> = typeof VigorFetchBase> extends VigorStatus<VigorFetchSchema<any>, T, VigorFetchPolicySettingsTypeLambda> {
-    constructor(config?: T);
-    protected _create<C>(config: C): VigorApply<VigorFetchPolicySettingsTypeLambda, C>;
-    /** Sets response headers consulted to compute a server-suggested retry delay. */
-    retryHeaders<const N extends VigorFetchSchema<any>["policy"]["settings"]["retryHeaders"]>(...strs: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly settings: {
-                readonly retryHeaders: N;
-            };
-        };
-    }>>>;
-    /** Sets HTTP status codes that should never be retried. */
-    unretryStatus<const N extends VigorFetchSchema<any>["policy"]["settings"]["unretryStatus"]>(...nums: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly settings: {
-                readonly unretryStatus: N;
-            };
-        };
-    }>>>;
-    /** Sets the maximum number of full restarts allowed. */
-    maxRestarts<const N extends VigorFetchSchema<any>["policy"]["settings"]["maxRestarts"]>(num: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly settings: {
-                readonly maxRestarts: N;
-            };
-        };
-    }>>>;
-    /** Sets the fallback value/factory used when the request ultimately fails. */
-    default<const N extends VigorExcludeEmpty<VigorFetchSchema<any>["policy"]["settings"]["default"]>>(func: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
-        readonly policy: {
-            readonly settings: {
-                readonly default: N;
-            };
-        };
-    }>>>;
-}
+declare const isVigorAllError: (error: unknown) => error is VigorAllErrors;
 
 /** Returns a random offset in the range `[-jitter, +jitter]` to randomize a computed delay. */
 declare function VigorJitter(jitter: number): number;
@@ -1275,6 +1272,56 @@ type VigorRetryPipeResult<T extends VigorRetrySchema<T>> = VigorRetryPolicyMiddl
     result: infer R;
 } ? R : never;
 
+type VigorRetryTimelineStages = Omit<VigorRetryPolicyMiddlewaresSchema<any>, "__brand">;
+type VigorRetryTimelineApis = {
+    [S in keyof VigorRetryTimelineStages]: Parameters<VigorRetryPolicyMiddlewaresIntercept<any>[S]["func"]>[1];
+};
+/** Lifecycle steps recorded as `PROCESS_HANDLING`, mapped to their `data`. */
+type VigorRetryProcessHandler = {
+    /** A run started. `restartAttempt` is `1` for the first run, and increases on every restart. */
+    REQUEST_START: {
+        restartAttempt: number;
+    };
+    /** The run failed, before `onError` runs. */
+    REQUEST_ERROR: {
+        error: unknown;
+    };
+    /** `onError` asked for a restart; the next run's entries follow. */
+    REQUEST_RESTART: {
+        restartAttempt: number;
+    };
+    /** An attempt started. */
+    RETRY_START: {
+        attempt: number;
+    };
+    /** An attempt failed (in a middleware, the target, or by timeout/abort). */
+    RETRY_ERROR: {
+        attempt: number;
+        error: unknown;
+    };
+};
+/** Every action a retry timeline can record, mapped to its content. */
+type VigorRetryTimelineEvents = VigorTimelineProcessEvents<VigorRetryProcessHandler> & VigorTimelineMiddlewareEvents<VigorRetryTimelineStages, VigorRetryTimelineApis> & {
+    ATTEMPT_INCREASED: {
+        attempt: number;
+    };
+    TARGET_REQUEST_STARTED: {
+        attempt: number;
+    };
+    TARGET_REQUEST_ENDED: {
+        attempt: number;
+        took: number;
+    };
+    /** The delay about to be awaited before the next attempt. */
+    RETRY_DELAY: {
+        attempt: number;
+        delay: number;
+    };
+};
+/** A retry context as stored on a timeline entry. */
+type VigorRetryTimelineSnapshot = VigorTimelineSnapshot<VigorRetryContextSchema<any>>;
+type VigorRetryTimeline = VigorTimeline<VigorRetryTimelineEvents, VigorRetryTimelineSnapshot>;
+
 /**
  * Base shape shared by every retry context variant. `R` is the type of
  * `result` at the point the context is observed — it differs by pipeline
@@ -1297,12 +1344,16 @@ type VigorRetryContextSchema<T extends VigorRetrySchema<T>, R = VigorRetryPipeRe
         overridden: boolean;
     };
     record: Record<string, any>;
+    /** Everything this `requestVerbose()` call has gone through so far, restarts included. */
+    timeline: VigorRetryTimeline;
     policy: T["policy"];
 };
 /** Context shape seen by `before` middlewares — the target hasn't run yet, so there's no result. */
 type VigorRetryBeforeContextSchema<T extends VigorRetrySchema<T>> = VigorRetryContextSchema<T, VigorDefaultType>;
 /** Context shape seen by `after` middlewares — reflects the result after `before` has run. */
-type VigorRetryAfterContextSchema<T extends VigorRetrySchema<T>> = VigorRetryPipeStepResult<VigorRetryPipeStepVoid<VigorRetryPipeInitialContext<T>, T["policy"]["middlewares"]["before"]>, T["policy"]["middlewares"]["after"]>;
+type VigorRetryAfterContextSchema<T extends VigorRetrySchema<T>> = VigorRetryPipeStepResult<VigorDeepMerge<VigorRetryPipeStepVoid<VigorRetryPipeInitialContext<T>, T["policy"]["middlewares"]["before"]>, {
+    result: VigorRetryPipeInitialContext<T>["result"];
+}>, T["policy"]["middlewares"]["after"]>;
 /** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
 type VigorRetryOnResultContextSchema<T extends VigorRetrySchema<T>> = VigorRetryPipeStepResult<VigorRetryAfterContextSchema<T>, T["policy"]["middlewares"]["onResult"]>;
 
@@ -1549,21 +1600,90 @@ declare class VigorRetry<T extends VigorRetrySchema<T> = typeof VigorRetryBase> 
     }>>>;
     /** Runs the target and returns its result directly, throwing on final failure. */
     request<R = VigorExcludeDefault<VigorRetryContextSchema<T>["result"]>>(): Promise<R>;
-    /** Runs the target and returns a result/error envelope instead of throwing. */
+    /**
+     * Runs the target and returns a result/error envelope instead of throwing,
+     * along with the `timeline` of everything the run went through.
+     */
     requestVerbose<R = VigorExcludeDefault<VigorRetryContextSchema<T>["result"]>>(): Promise<{
         success: false;
         data: null;
-        error: unknown;
+        error: VigorRetryRequestError<T>;
+        timeline: VigorRetryTimeline;
     } | {
         success: true;
         data: R;
         error: null;
+        timeline: VigorRetryTimeline;
     }>;
-    /** Internal execution loop implementing the attempt/retry/restart lifecycle. */
+    /**
+     * Internal execution loop implementing the attempt/retry/restart lifecycle.
+     * Never throws: every failure, including one from `onError` or `default`,
+     * comes back as an envelope carrying the timeline. A restart passes the
+     * same `timeline` on, so it keeps growing across runs.
+     */
     private requestRuntime;
 }
 
-type VigorParseStrategyFunc = (response: Response) => Promise<any>;
+declare const VigorRetryErrorMessageFuncs: {
+    readonly VALUE_REQUIRED: ({ key }: {
+        key: string;
+    }) => string;
+    readonly RETRY_EXHAUSTED: ({ maxAttempts }: {
+        maxAttempts: number;
+        error: unknown;
+    }) => string;
+    readonly RESTART_EXHAUSTED: ({ maxAttempts }: {
+        maxAttempts: number;
+        error: unknown;
+    }) => string;
+    readonly TIMED_OUT: ({ limit }: {
+        limit: number;
+    }) => string;
+};
+type VigorRetryErrorCodes = keyof typeof VigorRetryErrorMessageFuncs;
+type VigorRetryErrorDatas<C extends VigorRetryErrorCodes> = Parameters<typeof VigorRetryErrorMessageFuncs[C]> extends [infer A] ? A : undefined;
+/**
+ * Every retry error code as its own union member, so narrowing by `code`
+ * also narrows `data` to that code's payload.
+ */
+type VigorRetryErrors<T extends VigorRetrySchema<any> = VigorRetrySchema<any>> = {
+    [C in VigorRetryErrorCodes]: VigorRetryError<C, T>;
+}[VigorRetryErrorCodes];
+/** `error` of a failed `requestVerbose()` — this module's errors, or anything else that was thrown. */
+type VigorRetryRequestError<T extends VigorRetrySchema<any> = any> = VigorResultError<VigorRetryErrors<T>>;
+/** Error type thrown by the retry module. */
+declare class VigorRetryError<C extends VigorRetryErrorCodes, T extends VigorRetrySchema<T>> extends VigorError<C, VigorRetryErrorDatas<C>, VigorRetryContextSchema<T>> {
+    /**
+     * @param code - One of the retry module's error codes.
+     * @param options - Error metadata, including the `data` payload for `code`.
+     */
+    constructor(code: C, options: VigorErrorOptions<VigorRetryErrorDatas<C>, VigorRetryContextSchema<T>>);
+}
+/**
+ * Narrows an error from a failed result envelope to the retry module's typed
+ * error union. Prefer this over a bare `instanceof`: the envelope's `{}`
+ * member makes `instanceof` widen `data` back to every code's payload,
+ * while this guard keeps `code` and `data` in sync.
+ */
+declare const isVigorRetryError: (error: unknown) => error is VigorRetryErrors;
+
+/**
+ * A request|response body, read exactly once into raw bytes, plus the
+ * metadata strategies need to interpret it. Every strategy in a chain gets
+ * the same bytes, so a failed strategy never consumes anything.
+ */
+type VigorParseBody = {
+    /** The raw body. Empty when there is no body. */
+    bytes: Uint8Array<ArrayBuffer>;
+    /** The `Content-Type` header, or `null` when absent. */
+    contentType: string | null;
+    /** The response status, or `null` when parsing a `Request`. */
+    status: number | null;
+    headers: Headers;
+    /** The request|response the bytes were read from. Its body is already consumed. */
+    source: Request | Response;
+};
+type VigorParseStrategyFunc = (body: VigorParseBody) => any | Promise<any>;
 type VigorParsePolicyStrategiesSchema<T extends VigorParseSchema<T>> = {
     __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
     funcs: Array<VigorParseStrategyFunc>;
@@ -1572,9 +1692,23 @@ declare const VigorParsePolicyStrategiesBase: {
     readonly __brand: VigorBrand<"Parse", "Policy<Strategies<Schema">;
     readonly funcs: VigorParseStrategyFunc[];
 };
-/** Parses a response by matching its `Content-Type` header against a known parser table. */
+/**
+ * Reads a request|response body into raw bytes — once. Later calls with the
+ * same object return the cached bytes instead of reading the (now consumed)
+ * stream again.
+ */
+declare function readVigorParseBody(source: Request | Response): Promise<VigorParseBody>;
+/**
+ * Parses a body by matching its `Content-Type` header against a known
+ * parser table. An empty body (e.g. `204 No Content`) resolves to `null`,
+ * and one without a `Content-Type` is read as text.
+ */
 declare const VigorParseContentTypeStrategy: VigorParseStrategyFunc;
-/** Parses a response by trying a sequence of body-reading methods until one succeeds. */
+/**
+ * Parses a body by trying JSON, then form data (for a form `Content-Type`),
+ * then text (only if the bytes are valid in the declared charset), then
+ * falling back to a `Blob`.
+ */
 declare const VigorParseSniffStrategy: VigorParseStrategyFunc;
 /** Immutable builder for a parse policy's fallback chain of parsing strategies. */
 declare class VigorParsePolicyStrategies<T extends VigorParseSchema<T> = typeof VigorParseBase> extends VigorStatus<VigorParseSchema<any>, T, VigorParsePolicyStrategiesTypeLambda> {
@@ -1596,7 +1730,7 @@ declare class VigorParsePolicyStrategies<T extends VigorParseSchema<T> = typeof 
             };
         };
     }>>>;
-    /** Adds the sniffing (try-each-method) parsing strategy. */
+    /** Adds the sniffing (try-each-format) parsing strategy. */
     sniff(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
         readonly policy: {
             readonly strategies: {
@@ -1604,7 +1738,7 @@ declare class VigorParsePolicyStrategies<T extends VigorParseSchema<T> = typeof 
             };
         };
     }>>>;
-    /** Adds a strategy that always parses the response as JSON. */
+    /** Adds a strategy that always parses the body as JSON. */
     json(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
         readonly policy: {
             readonly strategies: {
@@ -1612,7 +1746,7 @@ declare class VigorParsePolicyStrategies<T extends VigorParseSchema<T> = typeof 
             };
         };
     }>>>;
-    /** Adds a strategy that always parses the response as text. */
+    /** Adds a strategy that always parses the body as text, in its declared `charset`. */
     text(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
         readonly policy: {
             readonly strategies: {
@@ -1620,7 +1754,7 @@ declare class VigorParsePolicyStrategies<T extends VigorParseSchema<T> = typeof 
             };
         };
     }>>>;
-    /** Adds a strategy that always parses the response as an `ArrayBuffer`. */
+    /** Adds a strategy that always parses the body as an `ArrayBuffer`. */
     arrayBuffer(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
         readonly policy: {
             readonly strategies: {
@@ -1628,7 +1762,7 @@ declare class VigorParsePolicyStrategies<T extends VigorParseSchema<T> = typeof 
             };
         };
     }>>>;
-    /** Adds a strategy that always parses the response as a `Blob`. */
+    /** Adds a strategy that always parses the body as a `Blob`. */
     blob(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
         readonly policy: {
             readonly strategies: {
@@ -1636,7 +1770,7 @@ declare class VigorParsePolicyStrategies<T extends VigorParseSchema<T> = typeof 
             };
         };
     }>>>;
-    /** Adds a strategy that always parses the response as a `Uint8Array`. */
+    /** Adds a strategy that always parses the body as a `Uint8Array`. */
     bytes(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
         readonly policy: {
             readonly strategies: {
@@ -1644,7 +1778,7 @@ declare class VigorParsePolicyStrategies<T extends VigorParseSchema<T> = typeof 
             };
         };
     }>>>;
-    /** Adds a strategy that always parses the response as `FormData`. */
+    /** Adds a strategy that always parses the body as `FormData` (`x-www-form-urlencoded` or `multipart/form-data`). */
     formData(replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
         readonly policy: {
             readonly strategies: {
@@ -1652,7 +1786,7 @@ declare class VigorParsePolicyStrategies<T extends VigorParseSchema<T> = typeof 
             };
         };
     }>>>;
-    /** Adds a user-supplied custom parsing strategy. */
+    /** Adds a user-supplied custom parsing strategy. It receives the body already read into bytes. */
     custom<const N extends VigorParseStrategyFunc>(func: N, replace?: boolean): VigorParsePolicyStrategies<VigorParseIn<VigorDeepMerge<T, {
         readonly policy: {
             readonly strategies: {
@@ -1837,6 +1971,49 @@ type VigorParsePipeResult<T extends VigorParseSchema<T>> = VigorParsePolicyMiddl
     result: infer R;
 } ? R : never;
 
+type VigorParseTimelineStages = Omit<VigorParsePolicyMiddlewaresSchema<any>, "__brand">;
+type VigorParseTimelineApis = {
+    [S in keyof VigorParseTimelineStages]: Parameters<VigorParsePolicyMiddlewaresIntercept<any>[S]["func"]>[1];
+};
+/** Lifecycle steps recorded as `PROCESS_HANDLING`, mapped to their `data`. */
+type VigorParseProcessHandler = {
+    /** A run started. `restartAttempt` is `1` for the first run, and increases on every restart. */
+    REQUEST_START: {
+        restartAttempt: number;
+    };
+    /** The run failed, before `onError` runs. */
+    REQUEST_ERROR: {
+        error: unknown;
+    };
+    /** `onError` asked for a restart; the next run's entries follow. */
+    REQUEST_RESTART: {
+        restartAttempt: number;
+    };
+};
+/** Every action a parse timeline can record, mapped to its content. */
+type VigorParseTimelineEvents = VigorTimelineProcessEvents<VigorParseProcessHandler> & VigorTimelineMiddlewareEvents<VigorParseTimelineStages, VigorParseTimelineApis> & {
+    /** The body was read into bytes (or reused from the cache). */
+    BODY_READ: {
+        size: number;
+        took: number;
+    };
+    STRATEGY_STARTED: {
+        index: number;
+    };
+    STRATEGY_SUCCEEDED: {
+        index: number;
+        took: number;
+    };
+    STRATEGY_FAILED: {
+        index: number;
+        error: unknown;
+        took: number;
+    };
+};
+/** A parse context as stored on a timeline entry. */
+type VigorParseTimelineSnapshot = VigorTimelineSnapshot<VigorParseContextSchema<any>>;
+type VigorParseTimeline = VigorTimeline<VigorParseTimelineEvents, VigorParseTimelineSnapshot>;
+
 /**
  * Base shape shared by every parse context variant. `R` is the type of
  * `result` at the point the context is observed — computed per pipeline
@@ -1851,16 +2028,20 @@ type VigorParseContextSchema<T extends VigorParseSchema<T>, R = VigorParsePipeRe
     error: unknown;
     response: VigorParsePolicySchema<T>["target"];
     flags: {
-        overrided: boolean;
+        overridden: boolean;
         restarted: boolean;
     };
     record: Record<string, any>;
+    /** Everything this `requestVerbose()` call has gone through so far, restarts included. */
+    timeline: VigorParseTimeline;
     policy: T["policy"];
 };
 /** Context shape seen by `before` middlewares — parsing hasn't run yet. */
 type VigorParseBeforeContextSchema<T extends VigorParseSchema<T>> = VigorParseContextSchema<T, VigorDefaultType>;
 /** Context shape seen by `after` middlewares — reflects the result after `before` has run. */
-type VigorParseAfterContextSchema<T extends VigorParseSchema<T>> = VigorParsePipeStepResult<VigorParsePipeStepVoid<VigorParsePipeInitialContext<T>, T["policy"]["middlewares"]["before"]>, T["policy"]["middlewares"]["after"]>;
+type VigorParseAfterContextSchema<T extends VigorParseSchema<T>> = VigorParsePipeStepResult<VigorDeepMerge<VigorParsePipeStepVoid<VigorParsePipeInitialContext<T>, T["policy"]["middlewares"]["before"]>, {
+    result: VigorParsePipeInitialContext<T>["result"];
+}>, T["policy"]["middlewares"]["after"]>;
 /** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
 type VigorParseOnResultContextSchema<T extends VigorParseSchema<T>> = VigorParsePipeStepResult<VigorParseAfterContextSchema<T>, T["policy"]["middlewares"]["onResult"]>;
 
@@ -2065,18 +2246,454 @@ declare class VigorParse<T extends VigorParseSchema<T> = typeof VigorParseBase> 
     }>>>;
     /** Runs parsing and returns the result directly, throwing on final failure. */
     request<R = VigorExcludeDefault<VigorParseContextSchema<T>["result"]>>(): Promise<R>;
-    /** Runs parsing and returns a result/error envelope instead of throwing. */
+    /**
+     * Runs parsing and returns a result/error envelope instead of throwing,
+     * along with the `timeline` of everything the run went through.
+     */
     requestVerbose<R = VigorExcludeDefault<VigorParseContextSchema<T>["result"]>>(): Promise<{
         success: false;
         data: null;
-        error: unknown;
+        error: VigorParseRequestError<T>;
+        timeline: VigorParseTimeline;
     } | {
         success: true;
         data: R;
         error: null;
+        timeline: VigorParseTimeline;
     }>;
-    /** Internal execution loop implementing the strategy fallback and restart handling. */
+    /**
+     * Internal execution loop implementing the strategy fallback and restart
+     * handling. Never throws: every failure, including one from `onError` or
+     * `default`, comes back as an envelope carrying the timeline. A restart
+     * passes the same `timeline` on, so it keeps growing across runs.
+     */
     private requestRuntime;
+}
+
+declare const VigorParseErrorMessageFuncs: {
+    readonly VALUE_REQUIRED: ({ key }: {
+        key: string;
+    }) => string;
+    readonly INVALID_CONTENT_TYPE: ({ received }: {
+        received: unknown;
+    }) => string;
+    readonly PARSER_NOT_FOUND: ({ received, expected }: {
+        received: unknown;
+        expected: Array<string>;
+    }) => string;
+    readonly PARSER_ALL_FAILED: ({ tried }: {
+        tried: Array<string>;
+    }) => string;
+    readonly RESTART_EXHAUSTED: ({ maxAttempts }: {
+        maxAttempts: number;
+        error: unknown;
+    }) => string;
+};
+type VigorParseErrorCodes = keyof typeof VigorParseErrorMessageFuncs;
+type VigorParseErrorDatas<C extends VigorParseErrorCodes> = Parameters<typeof VigorParseErrorMessageFuncs[C]> extends [infer A] ? A : undefined;
+/**
+ * Every parse error code as its own union member, so narrowing by `code`
+ * also narrows `data` to that code's payload.
+ */
+type VigorParseErrors<T extends VigorParseSchema<any> = VigorParseSchema<any>> = {
+    [C in VigorParseErrorCodes]: VigorParseError<C, T>;
+}[VigorParseErrorCodes];
+/** `error` of a failed `requestVerbose()` — this module's errors, or anything else that was thrown. */
+type VigorParseRequestError<T extends VigorParseSchema<any> = any> = VigorResultError<VigorParseErrors<T>>;
+/** Error type thrown by the parse module. */
+declare class VigorParseError<C extends VigorParseErrorCodes, T extends VigorParseSchema<T>> extends VigorError<C, VigorParseErrorDatas<C>, VigorParseContextSchema<T>> {
+    /**
+     * @param code - One of the parse module's error codes.
+     * @param options - Error metadata, including the `data` payload for `code`.
+     */
+    constructor(code: C, options: VigorErrorOptions<VigorParseErrorDatas<C>, VigorParseContextSchema<T>>);
+}
+/**
+ * Narrows an error from a failed result envelope to the parse module's typed
+ * error union. Prefer this over a bare `instanceof`: the envelope's `{}`
+ * member makes `instanceof` widen `data` back to every code's payload,
+ * while this guard keeps `code` and `data` in sync.
+ */
+declare const isVigorParseError: (error: unknown) => error is VigorParseErrors;
+
+type VigorFetchPolicyMiddlewaresSchema<T extends VigorFetchSchema<T>> = {
+    __brand: VigorBrand<"Fetch", "Policy<Middlewares<Schema">;
+    before: (VigorFetchPolicyMiddlewaresFluent<T>["before"] | VigorFetchPolicyMiddlewaresIntercept<T>["before"])[];
+    after: (VigorFetchPolicyMiddlewaresFluent<T>["after"] | VigorFetchPolicyMiddlewaresIntercept<T>["after"])[];
+    onResult: (VigorFetchPolicyMiddlewaresFluent<T>["onResult"] | VigorFetchPolicyMiddlewaresIntercept<T>["onResult"])[];
+    onError: (VigorFetchPolicyMiddlewaresFluent<T>["onError"] | VigorFetchPolicyMiddlewaresIntercept<T>["onError"])[];
+};
+declare const VigorFetchPolicyMiddlewaresBase: {
+    readonly __brand: VigorBrand<"Fetch", "Policy<Middlewares<Schema">;
+    readonly before: [];
+    readonly after: [];
+    readonly onResult: [];
+    readonly onError: [];
+};
+type VigorFetchPolicyMiddlewaresFluent<T extends VigorFetchSchema<T>> = {
+    __brand: VigorBrand<"Fetch", "Policy<Middlewares<Fluent<Schema">;
+    before: {
+        _mode: "fluent";
+        func: (ctx: VigorFetchBeforeContextSchema<T>) => void | Promise<void>;
+    };
+    after: {
+        _mode: "fluent";
+        func: (ctx: VigorFetchAfterContextSchema<T>) => void | Promise<void>;
+    };
+    onResult: {
+        _mode: "fluent";
+        func: (res: VigorFetchOnResultContextSchema<T> extends {
+            result: infer R;
+        } ? R : never) => VigorFetchContextSchema<any>["result"] | Promise<VigorFetchContextSchema<any>["result"]>;
+    };
+    onError: {
+        _mode: "fluent";
+        func: (err: VigorFetchContextSchema<T>["error"]) => void | Promise<void>;
+    };
+};
+type VigorFetchPolicyMiddlewaresApi<T extends VigorFetchSchema<T>> = {
+    setResult: (res: VigorFetchContextSchema<any>["result"]) => void;
+    throwError: (err: VigorFetchContextSchema<any>["error"]) => void;
+    setOptions: (opts: VigorFetchOptions) => void;
+    setHeaders: (headers: VigorFetchOptions["headers"]) => void;
+    setBody: (body: VigorFetchOptions["body"]) => void;
+    proceedRestart: () => void;
+    cancelRestart: () => void;
+};
+type VigorFetchPolicyMiddlewaresIntercept<T extends VigorFetchSchema<T>> = {
+    __brand: VigorBrand<"Fetch", "Policy<Middlewares<Intercept<Schema">;
+    before: {
+        _mode: "intercept";
+        func: (ctx: VigorFetchBeforeContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "throwError" | "setOptions" | "setHeaders" | "setBody">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>>;
+    };
+    after: {
+        _mode: "intercept";
+        func: (ctx: VigorFetchAfterContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult" | "throwError">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>>;
+    };
+    onResult: {
+        _mode: "intercept";
+        func: (ctx: VigorFetchOnResultContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult" | "throwError">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>>;
+    };
+    onError: {
+        _mode: "intercept";
+        func: (ctx: VigorFetchContextSchema<T>, api: Pick<VigorFetchPolicyMiddlewaresApi<T>, "setResult" | "throwError" | "proceedRestart" | "cancelRestart">) => VigorFetchContextSchema<any> | Promise<VigorFetchContextSchema<any>>;
+    };
+};
+/**
+ * Immutable builder for a fetch policy's middleware pipeline (`before`,
+ * `after`, `onResult`, `onError`). Each stage accepts either "fluent"
+ * middleware (returns a plain value merged into the context) or
+ * "intercept" middleware (receives an explicit API to mutate control flow).
+ */
+declare class VigorFetchPolicyMiddlewares<T extends VigorFetchSchema<T> = typeof VigorFetchBase> extends VigorStatus<VigorFetchSchema<any>, T, VigorFetchPolicyMiddlewaresTypeLambda> {
+    constructor(config?: T);
+    protected _create<C>(config: C): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, C>;
+    /** Registers a middleware that runs before the request is sent. */
+    before<const N extends VigorFetchPolicyMiddlewaresFluent<T>["before"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+        policy: {
+            middlewares: {
+                before: [{
+                    _mode: "fluent";
+                    func: N;
+                }];
+            };
+        };
+    }>>;
+    before<const N extends VigorFetchPolicyMiddlewaresIntercept<T>["before"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+        policy: {
+            middlewares: {
+                before: [{
+                    _mode: "intercept";
+                    func: N;
+                }];
+            };
+        };
+    }>>;
+    /** Registers a middleware that runs after the response is received. */
+    after<const N extends VigorFetchPolicyMiddlewaresFluent<T>["after"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+        policy: {
+            middlewares: {
+                after: [{
+                    _mode: "fluent";
+                    func: N;
+                }];
+            };
+        };
+    }>>;
+    after<const N extends VigorFetchPolicyMiddlewaresIntercept<T>["after"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+        policy: {
+            middlewares: {
+                after: [{
+                    _mode: "intercept";
+                    func: N;
+                }];
+            };
+        };
+    }>>;
+    /** Registers a middleware that transforms or validates the parsed result. */
+    onResult<const N extends VigorFetchPolicyMiddlewaresFluent<T>["onResult"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+        policy: {
+            middlewares: {
+                onResult: [{
+                    _mode: "fluent";
+                    func: N;
+                }];
+            };
+        };
+    }>>;
+    onResult<const N extends VigorFetchPolicyMiddlewaresIntercept<T>["onResult"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+        policy: {
+            middlewares: {
+                onResult: [{
+                    _mode: "intercept";
+                    func: N;
+                }];
+            };
+        };
+    }>>;
+    /** Registers a middleware that runs when the request ultimately fails. */
+    onError<const N extends VigorFetchPolicyMiddlewaresFluent<T>["onError"]["func"]>(type: "fluent", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+        policy: {
+            middlewares: {
+                onError: [{
+                    _mode: "fluent";
+                    func: N;
+                }];
+            };
+        };
+    }>>;
+    onError<const N extends VigorFetchPolicyMiddlewaresIntercept<T>["onError"]["func"]>(type: "intercept", func: N): VigorApply<VigorFetchPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, {
+        policy: {
+            middlewares: {
+                onError: [{
+                    _mode: "intercept";
+                    func: N;
+                }];
+            };
+        };
+    }>>;
+}
+type VigorFetchPipeInitialContext<T extends VigorFetchSchema<T>, R = VigorCastResult<T["cast"], unknown>> = VigorDeepMerge<Omit<VigorFetchContextSchema<T, unknown>, "result">, {
+    result: R;
+}>;
+type VigorFetchPipeStepVoid<Ctx, Arr> = Arr extends [infer Head, ...infer Tail] ? Head extends {
+    _mode: "intercept";
+    func: (...args: any[]) => infer Ret;
+} ? VigorFetchPipeStepVoid<Ret, Tail> : VigorFetchPipeStepVoid<Ctx, Tail> : Ctx;
+type VigorFetchPipeStepResult<Ctx, Arr> = Arr extends [infer Head, ...infer Tail] ? Head extends {
+    _mode: "intercept";
+    func: (...args: any[]) => infer Ret;
+} ? VigorFetchPipeStepResult<Ret, Tail> : Head extends {
+    _mode: "fluent";
+    func: (...args: any[]) => infer FR;
+} ? VigorFetchPipeStepResult<VigorDeepMerge<Ctx, {
+    result: FR;
+}>, Tail> : VigorFetchPipeStepResult<Ctx, Tail> : Ctx;
+type VigorFetchPolicyMiddlewaresPipe<T extends VigorFetchSchema<T>> = VigorFetchPipeStepVoid<VigorFetchPipeStepResult<VigorFetchPipeStepResult<VigorFetchPipeStepVoid<VigorFetchPipeInitialContext<T>, T["policy"]["middlewares"]["before"]>, T["policy"]["middlewares"]["after"]>, T["policy"]["middlewares"]["onResult"]>, T["policy"]["middlewares"]["onError"]>;
+type VigorFetchPipeResult<T extends VigorFetchSchema<T>> = VigorFetchPolicyMiddlewaresPipe<T> extends {
+    result: infer R;
+} ? R : never;
+
+type VigorFetchTimelineStages = Omit<VigorFetchPolicyMiddlewaresSchema<any>, "__brand">;
+type VigorFetchTimelineApis = {
+    [S in keyof VigorFetchTimelineStages]: Parameters<VigorFetchPolicyMiddlewaresIntercept<any>[S]["func"]>[1];
+};
+/** Lifecycle steps recorded as `PROCESS_HANDLING`, mapped to their `data`. */
+type VigorFetchProcessHandler = {
+    /** A run started. `restartAttempt` is `1` for the first run, and increases on every restart. */
+    REQUEST_START: {
+        restartAttempt: number;
+    };
+    /** The run failed, before `onError` runs. */
+    REQUEST_ERROR: {
+        error: unknown;
+    };
+    /** `onError` asked for a restart; the next run's entries follow. */
+    REQUEST_RESTART: {
+        restartAttempt: number;
+    };
+};
+/**
+ * Which response a parse engine ran on: `"response"` for the result, or
+ * `"failedResponse"` for the best-effort parse of a failed response's body.
+ */
+type VigorFetchParseSource = "response" | "failedResponse";
+/** Every action a fetch timeline can record, mapped to its content. */
+type VigorFetchTimelineEvents = VigorTimelineProcessEvents<VigorFetchProcessHandler> & VigorTimelineMiddlewareEvents<VigorFetchTimelineStages, VigorFetchTimelineApis> & {
+    BUILT_URL: {
+        url: string;
+    };
+    /** The options actually sent, after `before` has run. */
+    SET_OPTIONS: {
+        options: VigorFetchContextSchema<any>["options"];
+    };
+    /** The engines are built. `parseEngine` has no target yet; each parse sets its own. */
+    ENGINE_CREATED: {
+        retryEngine: VigorRetry<any>;
+        parseEngine: VigorParse<any>;
+    };
+    RETRY_STARTED: {
+        engine: VigorRetry<any>;
+    };
+    /** `timeline` is the retry engine's whole timeline. `response` is `VigorDefault` when it failed. */
+    RETRY_ENDED: {
+        engine: VigorRetry<any>;
+        timeline: VigorRetryTimeline;
+        took: number;
+        response: Response | VigorDefaultType;
+    };
+    PARSE_STARTED: {
+        engine: VigorParse<any>;
+        source: VigorFetchParseSource;
+    };
+    /** `timeline` is the parse engine's whole timeline. `result` is `VigorDefault` when it failed. */
+    PARSE_ENDED: {
+        engine: VigorParse<any>;
+        source: VigorFetchParseSource;
+        timeline: VigorParseTimeline;
+        took: number;
+        result: unknown;
+    };
+};
+/** A fetch context as stored on a timeline entry. */
+type VigorFetchTimelineSnapshot = VigorTimelineSnapshot<VigorFetchContextSchema<any>>;
+type VigorFetchTimeline = VigorTimeline<VigorFetchTimelineEvents, VigorFetchTimelineSnapshot>;
+
+type VigorFetchExtraOptions = Omit<RequestInit, "method" | "headers" | "body" | "signal">;
+type VigorFetchOptions = VigorFetchExtraOptions & {
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "CONNECT" | "TRACE";
+    headers: Record<string, string>;
+    body?: BodyInit | null;
+    signal?: AbortSignal;
+};
+/**
+ * Base shape shared by every fetch context variant. `R` is the type of
+ * `result` at the point the context is observed — computed per pipeline
+ * stage instead of being fixed on the schema.
+ */
+type VigorFetchContextSchema<T extends VigorFetchSchema<T>, R = VigorFetchPipeResult<T> | VigorDefaultType> = {
+    __brand: VigorBrand<"Fetch", "Context<Schema">;
+    href: string;
+    response: Response | VigorDefaultType;
+    result: R;
+    error: unknown;
+    options: VigorFetchOptions | VigorDefaultType;
+    flags: {
+        overridden: boolean;
+        restarted: boolean;
+    };
+    record: Record<string, any>;
+    /** Everything this `requestVerbose()` call has gone through so far, restarts included. */
+    timeline: VigorFetchTimeline;
+    policy: T["policy"];
+};
+/** Context shape seen by `before` middlewares — the request hasn't been sent yet. */
+type VigorFetchBeforeContextSchema<T extends VigorFetchSchema<T>> = VigorFetchContextSchema<T, VigorDefaultType>;
+/** Context shape seen by `after` middlewares — reflects the result after `before` has run. */
+type VigorFetchAfterContextSchema<T extends VigorFetchSchema<T>> = VigorFetchPipeStepResult<VigorDeepMerge<VigorFetchPipeStepVoid<VigorFetchPipeInitialContext<T>, T["policy"]["middlewares"]["before"]>, {
+    result: VigorFetchPipeInitialContext<T>["result"];
+}>, T["policy"]["middlewares"]["after"]>;
+/** Context shape seen by `onResult` middlewares — additionally threads any `onResult` middlewares already registered earlier in the same chain, so `ctx.result` reflects what the previous `onResult` returned. */
+type VigorFetchOnResultContextSchema<T extends VigorFetchSchema<T>> = VigorFetchPipeStepResult<VigorFetchAfterContextSchema<T>, T["policy"]["middlewares"]["onResult"]>;
+
+type VigorFetchPolicySettingsSchema<T extends VigorFetchSchema<T>> = {
+    __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
+    retryHeaders: string[];
+    unretryStatus: number[];
+    /**
+     * Upper bound, in milliseconds, on a server-suggested retry delay read
+     * from `retryHeaders`. Longer values are clamped to it.
+     */
+    maxRetryAfter: number;
+    /**
+     * When `true`, a response that was redirected (or a readable `3xx` with a
+     * `Location` header) navigates the page to its target via
+     * `window.location.href`. Outside a browser (no `window.location`) this
+     * does nothing, exactly like `false` (the default).
+     */
+    redirect: boolean;
+    maxRestarts: number;
+    default: ((ctx: VigorFetchContextSchema<T>) => any | Promise<any>) | VigorEmptyType;
+};
+declare const VigorFetchPolicySettingsBase: {
+    readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
+    readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after"];
+    readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
+    readonly maxRetryAfter: number;
+    readonly redirect: false;
+    readonly maxRestarts: 3;
+    readonly default: symbol & {
+        __brand: VigorBrand<"Core", "Symbol_Empty">;
+    };
+};
+/** Immutable builder for a fetch policy's general settings. */
+declare class VigorFetchPolicySettings<T extends VigorFetchSchema<T> = typeof VigorFetchBase> extends VigorStatus<VigorFetchSchema<any>, T, VigorFetchPolicySettingsTypeLambda> {
+    constructor(config?: T);
+    protected _create<C>(config: C): VigorApply<VigorFetchPolicySettingsTypeLambda, C>;
+    /** Sets (replaces) the response headers consulted to compute a server-suggested retry delay. */
+    retryHeaders<const N extends VigorFetchSchema<any>["policy"]["settings"]["retryHeaders"]>(...strs: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly retryHeaders: N;
+            };
+        };
+    }>>>;
+    /** Sets (replaces) the HTTP status codes that should never be retried. */
+    unretryStatus<const N extends VigorFetchSchema<any>["policy"]["settings"]["unretryStatus"]>(...nums: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly unretryStatus: N;
+            };
+        };
+    }>>>;
+    /** Sets the upper bound, in milliseconds, on a server-suggested retry delay. */
+    maxRetryAfter<const N extends VigorFetchSchema<any>["policy"]["settings"]["maxRetryAfter"]>(num: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly maxRetryAfter: N;
+            };
+        };
+    }>>>;
+    /**
+     * When enabled, a redirected response (or a readable `3xx` with a
+     * `Location` header) navigates the page to its target
+     * (`window.location.href`). Without `window.location` — e.g. in Node —
+     * this behaves like `false`.
+     */
+    redirect<const N extends VigorFetchSchema<any>["policy"]["settings"]["redirect"]>(bool: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly redirect: N;
+            };
+        };
+    }>>>;
+    /** Sets the maximum number of full restarts allowed. */
+    maxRestarts<const N extends VigorFetchSchema<any>["policy"]["settings"]["maxRestarts"]>(num: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly maxRestarts: N;
+            };
+        };
+    }>>>;
+    /** Sets the fallback value/factory used when the request ultimately fails. */
+    default<const N extends VigorExcludeEmpty<VigorFetchSchema<any>["policy"]["settings"]["default"]>>(func: N): VigorFetchPolicySettings<VigorFetchIn<VigorDeepMerge<T, {
+        readonly policy: {
+            readonly settings: {
+                readonly default: N;
+            };
+        };
+    }>>>;
+}
+
+type VigorFetchIn<T> = T extends VigorFetchSchema<any> ? T : never;
+interface VigorFetchTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorFetch<VigorFetchIn<this["In"]>>;
+}
+interface VigorFetchPolicySettingsTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorFetchPolicySettings<VigorFetchIn<this["In"]>>;
+}
+interface VigorFetchPolicyMiddlewaresTypeLambda extends VigorTypeLambda {
+    readonly Target: VigorFetchPolicyMiddlewares<VigorFetchIn<this["In"]>>;
 }
 
 type VigorStringable = string | number | boolean | null | undefined | Date;
@@ -2113,8 +2730,10 @@ declare const VigorFetchPolicyBase: {
     readonly extra: {};
     readonly settings: {
         readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
-        readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"];
+        readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after"];
         readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
+        readonly maxRetryAfter: number;
+        readonly redirect: false;
         readonly maxRestarts: 3;
         readonly default: symbol & {
             __brand: VigorBrand<"Core", "Symbol_Empty">;
@@ -2224,8 +2843,10 @@ declare const VigorFetchBase: {
         readonly extra: {};
         readonly settings: {
             readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
-            readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"];
+            readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after"];
             readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
+            readonly maxRetryAfter: number;
+            readonly redirect: false;
             readonly maxRestarts: 3;
             readonly default: symbol & {
                 __brand: VigorBrand<"Core", "Symbol_Empty">;
@@ -2456,6 +3077,8 @@ declare class VigorFetch<T extends VigorFetchSchema<T> = typeof VigorFetchBase> 
             parse: R;
         };
     }>>;
+    /** Whether `v` is a plain object literal (not an array, `FormData`, `Blob`, ...). */
+    protected _isPlainObject(v: unknown): v is Record<string, unknown>;
     /** Converts a list of stringable values into strings, dropping `null`/`undefined` entries. */
     protected _stringifyList(unkList: VigorStringable[]): string[];
     /**
@@ -2478,6 +3101,27 @@ declare class VigorFetch<T extends VigorFetchSchema<T> = typeof VigorFetchBase> 
         body: BodyInit | null | undefined;
     };
     /**
+     * Returns the absolute URL a redirect points at, or `null` when the
+     * response isn't a redirect. A response `fetch` already followed
+     * (`redirect: "follow"`, the default) yields its final URL; a readable
+     * `3xx` (`redirect: "manual"` outside browsers) yields its `Location`,
+     * resolved against the responding URL.
+     */
+    protected _resolveRedirect(response: Response, href: string): string | null;
+    /** The browser's `location`, or `null` in environments without one (e.g. Node). */
+    protected _browserLocation(): {
+        href: string;
+    } | null;
+    /** Assigns `source` headers onto `target`, replacing any existing key that differs only in case. */
+    protected _assignHeaders(target: Record<string, string>, source: Record<string, string>): void;
+    /**
+     * Converts a rate-limit header value into a delay in milliseconds, or
+     * `null` if it can't be used. Accepts delta seconds (`Retry-After: 120`),
+     * Unix epoch seconds or milliseconds (`X-RateLimit-Reset: 1735689600`),
+     * and HTTP dates.
+     */
+    protected _parseRetryHeader(value: string | null): number | null;
+    /**
      * Overrides the resolved result type with `T`, taking priority over the
      * default `unknown` result. Can be called before or after `parse()` (or
      * any other configuration method); whichever `.cast<T>()` call happens
@@ -2488,30 +3132,95 @@ declare class VigorFetch<T extends VigorFetchSchema<T> = typeof VigorFetchBase> 
     }>>>;
     /** Runs the request and returns its parsed result directly, throwing on final failure. */
     request<R = VigorExcludeDefault<VigorFetchContextSchema<T>["result"]>>(): Promise<R>;
-    /** Runs the request and returns a result/error envelope instead of throwing. */
+    /**
+     * Runs the request and returns a result/error envelope instead of throwing,
+     * along with the `timeline` of everything the run went through. The
+     * nested retry/parse engines' full timelines are kept inside it, on their
+     * `RETRY_ENDED`/`PARSE_ENDED` entries.
+     */
     requestVerbose<R = VigorExcludeDefault<VigorFetchContextSchema<T>["result"]>>(): Promise<{
         success: false;
         data: null;
-        error: unknown;
+        error: VigorFetchRequestError<T>;
+        timeline: VigorFetchTimeline;
     } | {
         success: true;
         data: R;
         error: null;
+        timeline: VigorFetchTimeline;
     }>;
-    /** Internal execution loop implementing URL building, retry, parsing, and restart handling. */
+    /**
+     * Internal execution loop implementing URL building, retry, parsing, and
+     * restart handling. Never throws: every failure, including one from
+     * `onError` or `default`, comes back as an envelope carrying the timeline.
+     * A restart passes the same `timeline` on, so it keeps growing across runs.
+     */
     private requestRuntime;
 }
 
-type VigorFetchIn<T> = T extends VigorFetchSchema<any> ? T : never;
-interface VigorFetchTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorFetch<VigorFetchIn<this["In"]>>;
+declare const VigorFetchErrorMessageFuncs: {
+    readonly VALUE_REQUIRED: ({ key }: {
+        key: string;
+    }) => string;
+    readonly INVALID_BODY: ({ received }: {
+        received: unknown;
+    }) => string;
+    readonly BODY_NOT_ALLOWED: ({ method }: {
+        method: string;
+    }) => string;
+    readonly INVALID_PROTOCOL: ({ origin, base }: {
+        origin: string;
+        base: string | undefined;
+    }) => string;
+    readonly FETCH_FAILED: ({ status, statusText }: {
+        status: number;
+        statusText: string;
+        response: Response;
+        url: string;
+        parsed: unknown;
+    }) => string;
+    readonly RESTART_EXHAUSTED: ({ maxAttempts }: {
+        maxAttempts: number;
+        error: unknown;
+    }) => string;
+    readonly REDIRECTED: ({ url, status }: {
+        url: string;
+        status: number;
+        response: Response;
+    }) => string;
+};
+type VigorFetchErrorCodes = keyof typeof VigorFetchErrorMessageFuncs;
+type VigorFetchErrorDatas<C extends VigorFetchErrorCodes> = Parameters<typeof VigorFetchErrorMessageFuncs[C]> extends [infer A] ? A : undefined;
+/**
+ * Every fetch error code as its own union member, so narrowing by `code`
+ * also narrows `data` to that code's payload.
+ */
+type VigorFetchErrors<T extends VigorFetchSchema<any> = VigorFetchSchema<any>> = {
+    [C in VigorFetchErrorCodes]: VigorFetchError<C, T>;
+}[VigorFetchErrorCodes];
+/**
+ * `error` of a failed `requestVerbose()`. Includes the nested engines'
+ * errors, since fetch surfaces them as-is: a retried-out request fails with
+ * `VigorRetryError("RETRY_EXHAUSTED")` (its `cause` holding the last
+ * `VigorFetchError`), and a body that can't be parsed fails with a
+ * `VigorParseError`.
+ */
+type VigorFetchRequestError<T extends VigorFetchSchema<any> = any> = VigorResultError<VigorFetchErrors<T> | VigorRetryErrors | VigorParseErrors>;
+/** Error type thrown by the fetch module. */
+declare class VigorFetchError<C extends VigorFetchErrorCodes, T extends VigorFetchSchema<T>> extends VigorError<C, VigorFetchErrorDatas<C>, VigorFetchContextSchema<T>> {
+    /**
+     * @param code - One of the fetch module's error codes.
+     * @param options - Error metadata, including the `data` payload for `code`.
+     */
+    constructor(code: C, options: VigorErrorOptions<VigorFetchErrorDatas<C>, VigorFetchContextSchema<T>>);
 }
-interface VigorFetchPolicySettingsTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorFetchPolicySettings<VigorFetchIn<this["In"]>>;
-}
-interface VigorFetchPolicyMiddlewaresTypeLambda extends VigorTypeLambda {
-    readonly Target: VigorFetchPolicyMiddlewares<VigorFetchIn<this["In"]>>;
-}
+/**
+ * Narrows an error from a failed result envelope to the fetch module's typed
+ * error union. Prefer this over a bare `instanceof`: the envelope's `{}`
+ * member makes `instanceof` widen `data` back to every code's payload,
+ * while this guard keeps `code` and `data` in sync.
+ */
+declare const isVigorFetchError: (error: unknown) => error is VigorFetchErrors;
 
 /**
  * Small named helpers that actually *call* the target/origin method with the
@@ -2590,8 +3299,10 @@ declare function fetchWithOrigin<const F extends Parameters<VigorFetch["origin"]
         __brand: VigorBrand<"Fetch", "Policy<Schema">;
         settings: {
             readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
-            readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"];
+            readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after"];
             readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
+            readonly maxRetryAfter: number;
+            readonly redirect: false;
             readonly maxRestarts: 3;
             readonly default: symbol & {
                 __brand: VigorBrand<"Core", "Symbol_Empty">;
@@ -2695,10 +3406,15 @@ declare function allWithTargets<const F extends VigorAllTask[]>(tasks: F): Vigor
     policy: {
         target: F extends VigorBuiltin ? F : F extends readonly any[] ? [...F] : F;
         __brand: VigorBrand<"All", "Policy<Schema">;
+        abortSignals: [];
         settings: {
             readonly __brand: VigorBrand<"All", "Policy<Settings<Schema">;
             readonly concurrency: 5;
             readonly onlySuccess: false;
+            readonly timeout: symbol & {
+                __brand: VigorBrand<"Core", "Symbol_Empty">;
+            };
+            readonly failFast: false;
         };
         middlewares: {
             readonly __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
@@ -2765,8 +3481,10 @@ declare const vigorBase: {
                     readonly extra: {};
                     readonly settings: {
                         readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
-                        readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"];
+                        readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after"];
                         readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
+                        readonly maxRetryAfter: number;
+                        readonly redirect: false;
                         readonly maxRestarts: 3;
                         readonly default: symbol & {
                             __brand: VigorBrand<"Core", "Symbol_Empty">;
@@ -2873,8 +3591,10 @@ declare const vigorBase: {
                     readonly extra: {};
                     readonly settings: {
                         readonly __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">;
-                        readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"];
+                        readonly retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after"];
                         readonly unretryStatus: [400, 401, 403, 404, 405, 413, 422];
+                        readonly maxRetryAfter: number;
+                        readonly redirect: false;
                         readonly maxRestarts: 3;
                         readonly default: symbol & {
                             __brand: VigorBrand<"Core", "Symbol_Empty">;
@@ -3220,10 +3940,15 @@ declare const vigorBase: {
                 readonly policy: {
                     readonly __brand: VigorBrand<"All", "Policy<Schema">;
                     readonly target: [];
+                    readonly abortSignals: [];
                     readonly settings: {
                         readonly __brand: VigorBrand<"All", "Policy<Settings<Schema">;
                         readonly concurrency: 5;
                         readonly onlySuccess: false;
+                        readonly timeout: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly failFast: false;
                     };
                     readonly middlewares: {
                         readonly __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
@@ -3244,10 +3969,15 @@ declare const vigorBase: {
                 readonly policy: {
                     readonly __brand: VigorBrand<"All", "Policy<Schema">;
                     readonly target: [];
+                    readonly abortSignals: [];
                     readonly settings: {
                         readonly __brand: VigorBrand<"All", "Policy<Settings<Schema">;
                         readonly concurrency: 5;
                         readonly onlySuccess: false;
+                        readonly timeout: symbol & {
+                            __brand: VigorBrand<"Core", "Symbol_Empty">;
+                        };
+                        readonly failFast: false;
                     };
                     readonly middlewares: {
                         readonly __brand: VigorBrand<"All", "Policy<Middlewares<Schema">;
@@ -3265,9 +3995,16 @@ declare const vigorBase: {
             }>;
         };
     };
+    guards: {
+        retry: (error: unknown) => error is VigorRetryErrors;
+        parse: (error: unknown) => error is VigorParseErrors;
+        fetch: (error: unknown) => error is VigorFetchErrors;
+        all: (error: unknown) => error is VigorAllErrors;
+    };
 };
-type VigorInstance = typeof vigorBase & {
-    use: <P extends VigorPlugin<any, any>>(plugin: P, options?: P["options"]) => VigorInstance & ReturnType<P["func"]>;
+/** `Ext` accumulates every plugin extension applied so far, so `use().use()` keeps all of them. */
+type VigorInstance<Ext = {}> = typeof vigorBase & Ext & {
+    use: <P extends VigorPlugin<any, any>>(plugin: P, options?: P["options"]) => VigorInstance<Ext & ReturnType<P["func"]>>;
 };
 /**
  * A plugin never mutates the `VigorInstance` it receives — it reads from it
@@ -3283,139 +4020,4 @@ type VigorPlugin<O extends {
 };
 declare const vigor: VigorInstance;
 
-type VigorErrorOptions<D, T> = {
-    cause?: unknown;
-    data: D;
-    method: string;
-    context?: T;
-};
-/**
- * Base class for all Vigor error types. Subclasses (`VigorRetryError`,
- * `VigorFetchError`, `VigorParseError`, `VigorAllError`) fix `C`, `D`, and
- * `T` to their own error-code union, data shape, and context shape.
- *
- * @typeParam C - Union of error codes for the subclass.
- * @typeParam D - Shape of the structured error data.
- * @typeParam T - Shape of the domain context.
- */
-declare abstract class VigorError<C extends string, D, T> extends Error {
-    readonly timestamp: Date;
-    readonly cause?: unknown;
-    readonly code: C;
-    readonly data: D;
-    readonly method: string;
-    readonly context: T | undefined;
-    /**
-     * @param code - Machine-readable error code.
-     * @param message - Human-readable message (rendered after the `[code]` prefix).
-     * @param options - Additional error metadata (cause, data, method, context).
-     */
-    constructor(code: C, message: string, options: VigorErrorOptions<D, T>);
-}
-
-declare const VigorRetryErrorMessageFuncs: {
-    readonly VALUE_REQUIRED: ({ key }: {
-        key: string;
-    }) => string;
-    readonly RETRY_EXHAUSTED: ({ maxAttempts }: {
-        maxAttempts: number;
-        error: unknown;
-    }) => string;
-    readonly RESTART_EXHAUSTED: ({ maxAttempts }: {
-        maxAttempts: number;
-        error: unknown;
-    }) => string;
-    readonly TIMED_OUT: ({ limit }: {
-        limit: number;
-    }) => string;
-};
-type VigorRetryErrorCodes = keyof typeof VigorRetryErrorMessageFuncs;
-type VigorRetryErrorDatas<C extends VigorRetryErrorCodes> = Parameters<typeof VigorRetryErrorMessageFuncs[C]> extends [infer A] ? A : undefined;
-/** Error type thrown by the retry module. */
-declare class VigorRetryError<C extends VigorRetryErrorCodes, T extends VigorRetrySchema<T>> extends VigorError<C, VigorRetryErrorDatas<C>, VigorRetryContextSchema<T>> {
-    /**
-     * @param code - One of the retry module's error codes.
-     * @param options - Error metadata, including the `data` payload for `code`.
-     */
-    constructor(code: C, options: VigorErrorOptions<VigorRetryErrorDatas<C>, VigorRetryContextSchema<T>>);
-}
-
-declare const VigorParseErrorMessageFuncs: {
-    readonly VALUE_REQUIRED: ({ key }: {
-        key: string;
-    }) => string;
-    readonly INVALID_CONTENT_TYPE: ({ received }: {
-        received: unknown;
-    }) => string;
-    readonly PARSER_NOT_FOUND: ({ received, expected }: {
-        received: unknown;
-        expected: Array<string>;
-    }) => string;
-    readonly PARSER_ALL_FAILED: ({ tried }: {
-        tried: Array<string>;
-    }) => string;
-    readonly RESTART_EXHAUSTED: ({ maxAttempts }: {
-        maxAttempts: number;
-        error: unknown;
-    }) => string;
-};
-type VigorParseErrorCodes = keyof typeof VigorParseErrorMessageFuncs;
-type VigorParseErrorDatas<C extends VigorParseErrorCodes> = Parameters<typeof VigorParseErrorMessageFuncs[C]> extends [infer A] ? A : undefined;
-/** Error type thrown by the parse module. */
-declare class VigorParseError<C extends VigorParseErrorCodes, T extends VigorParseSchema<T>> extends VigorError<C, VigorParseErrorDatas<C>, VigorParseContextSchema<T>> {
-    /**
-     * @param code - One of the parse module's error codes.
-     * @param options - Error metadata, including the `data` payload for `code`.
-     */
-    constructor(code: C, options: VigorErrorOptions<VigorParseErrorDatas<C>, VigorParseContextSchema<T>>);
-}
-
-declare const VigorFetchErrorMessageFuncs: {
-    readonly VALUE_REQUIRED: ({ key }: {
-        key: string;
-    }) => string;
-    readonly INVALID_BODY: ({ received }: {
-        received: unknown;
-    }) => string;
-    readonly INVALID_PROTOCOL: ({ origin, base }: {
-        origin: string;
-        base: string | undefined;
-    }) => string;
-    readonly FETCH_FAILED: ({ status, statusText }: {
-        status: number;
-        statusText: string;
-        response: Response;
-        url: string;
-        parsed: unknown;
-    }) => string;
-    readonly RESTART_EXHAUSTED: ({ maxAttempts }: {
-        maxAttempts: number;
-        error: unknown;
-    }) => string;
-};
-type VigorFetchErrorCodes = keyof typeof VigorFetchErrorMessageFuncs;
-type VigorFetchErrorDatas<C extends VigorFetchErrorCodes> = Parameters<typeof VigorFetchErrorMessageFuncs[C]> extends [infer A] ? A : undefined;
-/** Error type thrown by the fetch module. */
-declare class VigorFetchError<C extends VigorFetchErrorCodes, T extends VigorFetchSchema<T>> extends VigorError<C, VigorFetchErrorDatas<C>, VigorFetchContextSchema<T>> {
-    /**
-     * @param code - One of the fetch module's error codes.
-     * @param options - Error metadata, including the `data` payload for `code`.
-     */
-    constructor(code: C, options: VigorErrorOptions<VigorFetchErrorDatas<C>, VigorFetchContextSchema<T>>);
-}
-
-declare const VigorAllErrorMessageFuncs: {
-    readonly EMPTY_TARGET: (_: {}) => string;
-};
-type VigorAllErrorCodes = keyof typeof VigorAllErrorMessageFuncs;
-type VigorAllErrorDatas<C extends VigorAllErrorCodes> = Parameters<typeof VigorAllErrorMessageFuncs[C]> extends [infer A] ? A : undefined;
-/** Error type thrown by the all module. */
-declare class VigorAllError<C extends VigorAllErrorCodes, T extends VigorAllSchema<T>> extends VigorError<C, VigorAllErrorDatas<C>, VigorAllContextSchema<T>> {
-    /**
-     * @param code - One of the all module's error codes.
-     * @param options - Error metadata, including the `data` payload for `code`.
-     */
-    constructor(code: C, options: VigorErrorOptions<VigorAllErrorDatas<C>, VigorAllContextSchema<T>>);
-}
-
-export { VigorAll, VigorAllBase, type VigorAllEachMiddlewareFn, type VigorAllEachOnErrorFn, VigorAllError, type VigorAllErrorCodes, type VigorAllErrorDatas, VigorAllErrorMessageFuncs, type VigorAllNaturalResult, type VigorAllPipeInitialContext, type VigorAllPipeResult, type VigorAllPipeStepResult, type VigorAllPipeStepVoid, VigorAllPolicyBase, VigorAllPolicyMiddlewares, type VigorAllPolicyMiddlewaresApi, VigorAllPolicyMiddlewaresBase, type VigorAllPolicyMiddlewaresFluent, type VigorAllPolicyMiddlewaresIntercept, type VigorAllPolicyMiddlewaresPipe, type VigorAllPolicyMiddlewaresSchema, type VigorAllPolicySchema, VigorAllPolicySettings, VigorAllPolicySettingsBase, type VigorAllPolicySettingsSchema, type VigorAllSchema, type VigorAllTask, type VigorAllTaskResult, type VigorAllTasksTuple, type VigorBuiltin, type VigorCastResult, type VigorConcat, type VigorDeepMerge, type VigorDeepPartial, VigorError, type VigorErrorOptions, VigorFetch, VigorFetchBase, VigorFetchError, type VigorFetchErrorCodes, type VigorFetchErrorDatas, VigorFetchErrorMessageFuncs, type VigorFetchPipeInitialContext, type VigorFetchPipeResult, type VigorFetchPipeStepResult, type VigorFetchPipeStepVoid, VigorFetchPolicyBase, VigorFetchPolicyMiddlewares, type VigorFetchPolicyMiddlewaresApi, VigorFetchPolicyMiddlewaresBase, type VigorFetchPolicyMiddlewaresFluent, type VigorFetchPolicyMiddlewaresIntercept, type VigorFetchPolicyMiddlewaresPipe, type VigorFetchPolicyMiddlewaresSchema, type VigorFetchPolicySchema, VigorFetchPolicySettings, VigorFetchPolicySettingsBase, type VigorFetchPolicySettingsSchema, type VigorFetchSchema, type VigorInstance, VigorJitter, type VigorLastOf, type VigorMergeMode, type VigorMergeStrategy, VigorParse, VigorParseBase, VigorParseContentTypeStrategy, VigorParseError, type VigorParseErrorCodes, type VigorParseErrorDatas, VigorParseErrorMessageFuncs, type VigorParsePipeInitialContext, type VigorParsePipeResult, type VigorParsePipeStepResult, type VigorParsePipeStepVoid, VigorParsePolicyBase, VigorParsePolicyMiddlewares, type VigorParsePolicyMiddlewaresApi, VigorParsePolicyMiddlewaresBase, type VigorParsePolicyMiddlewaresFluent, type VigorParsePolicyMiddlewaresIntercept, type VigorParsePolicyMiddlewaresPipe, type VigorParsePolicyMiddlewaresSchema, type VigorParsePolicySchema, VigorParsePolicySettings, VigorParsePolicySettingsBase, type VigorParsePolicySettingsSchema, VigorParsePolicyStrategies, VigorParsePolicyStrategiesBase, type VigorParsePolicyStrategiesSchema, type VigorParseSchema, VigorParseSniffStrategy, type VigorParseStrategyFunc, type VigorPlugin, type VigorPrimitive, type VigorReplaceType, VigorRetry, VigorRetryBase, VigorRetryError, type VigorRetryErrorCodes, type VigorRetryErrorDatas, VigorRetryErrorMessageFuncs, type VigorRetryPipeInitialContext, type VigorRetryPipeResult, type VigorRetryPipeStepResult, type VigorRetryPipeStepRetryIf, type VigorRetryPipeStepVoid, VigorRetryPolicyAlgorithms, VigorRetryPolicyAlgorithmsBackoff, VigorRetryPolicyAlgorithmsBackoffBase, type VigorRetryPolicyAlgorithmsBackoffSchema, VigorRetryPolicyAlgorithmsBase, VigorRetryPolicyAlgorithmsConstant, VigorRetryPolicyAlgorithmsConstantBase, type VigorRetryPolicyAlgorithmsConstantSchema, VigorRetryPolicyAlgorithmsCustom, VigorRetryPolicyAlgorithmsCustomBase, type VigorRetryPolicyAlgorithmsCustomSchema, VigorRetryPolicyAlgorithmsLinear, VigorRetryPolicyAlgorithmsLinearBase, type VigorRetryPolicyAlgorithmsLinearSchema, type VigorRetryPolicyAlgorithmsSchema, VigorRetryPolicyBase, VigorRetryPolicyMiddlewares, type VigorRetryPolicyMiddlewaresApi, VigorRetryPolicyMiddlewaresBase, type VigorRetryPolicyMiddlewaresFluent, type VigorRetryPolicyMiddlewaresIntercept, type VigorRetryPolicyMiddlewaresPipe, type VigorRetryPolicyMiddlewaresSchema, type VigorRetryPolicySchema, VigorRetryPolicySettings, VigorRetryPolicySettingsBase, type VigorRetryPolicySettingsSchema, type VigorRetrySchema, type VigorReturnType, type VigorSimplify, VigorStatus, type VigorStringable, vigor as default, vigor };
+export { VigorAll, VigorAllBase, type VigorAllEachMiddlewareFn, type VigorAllEachOnErrorFn, VigorAllError, type VigorAllErrorCodes, type VigorAllErrorDatas, VigorAllErrorMessageFuncs, type VigorAllErrors, type VigorAllNaturalResult, type VigorAllPipeInitialContext, type VigorAllPipeResult, type VigorAllPipeStepResult, type VigorAllPipeStepVoid, VigorAllPolicyBase, VigorAllPolicyMiddlewares, type VigorAllPolicyMiddlewaresApi, VigorAllPolicyMiddlewaresBase, type VigorAllPolicyMiddlewaresFluent, type VigorAllPolicyMiddlewaresIntercept, type VigorAllPolicyMiddlewaresPipe, type VigorAllPolicyMiddlewaresSchema, type VigorAllPolicySchema, VigorAllPolicySettings, VigorAllPolicySettingsBase, type VigorAllPolicySettingsSchema, type VigorAllProcessHandler, type VigorAllRequestError, type VigorAllSchema, type VigorAllTask, type VigorAllTaskResult, type VigorAllTasksTuple, type VigorAllTimeline, type VigorAllTimelineEvents, type VigorAllTimelineSnapshot, type VigorBuiltin, type VigorCastResult, type VigorConcat, type VigorDeepMerge, type VigorDeepPartial, VigorError, type VigorErrorOptions, VigorFetch, VigorFetchBase, VigorFetchError, type VigorFetchErrorCodes, type VigorFetchErrorDatas, VigorFetchErrorMessageFuncs, type VigorFetchErrors, type VigorFetchParseSource, type VigorFetchPipeInitialContext, type VigorFetchPipeResult, type VigorFetchPipeStepResult, type VigorFetchPipeStepVoid, VigorFetchPolicyBase, VigorFetchPolicyMiddlewares, type VigorFetchPolicyMiddlewaresApi, VigorFetchPolicyMiddlewaresBase, type VigorFetchPolicyMiddlewaresFluent, type VigorFetchPolicyMiddlewaresIntercept, type VigorFetchPolicyMiddlewaresPipe, type VigorFetchPolicyMiddlewaresSchema, type VigorFetchPolicySchema, VigorFetchPolicySettings, VigorFetchPolicySettingsBase, type VigorFetchPolicySettingsSchema, type VigorFetchProcessHandler, type VigorFetchRequestError, type VigorFetchSchema, type VigorFetchTimeline, type VigorFetchTimelineEvents, type VigorFetchTimelineSnapshot, type VigorInstance, VigorJitter, type VigorLastOf, type VigorMergeMode, type VigorMergeStrategy, VigorParse, VigorParseBase, type VigorParseBody, VigorParseContentTypeStrategy, VigorParseError, type VigorParseErrorCodes, type VigorParseErrorDatas, VigorParseErrorMessageFuncs, type VigorParseErrors, type VigorParsePipeInitialContext, type VigorParsePipeResult, type VigorParsePipeStepResult, type VigorParsePipeStepVoid, VigorParsePolicyBase, VigorParsePolicyMiddlewares, type VigorParsePolicyMiddlewaresApi, VigorParsePolicyMiddlewaresBase, type VigorParsePolicyMiddlewaresFluent, type VigorParsePolicyMiddlewaresIntercept, type VigorParsePolicyMiddlewaresPipe, type VigorParsePolicyMiddlewaresSchema, type VigorParsePolicySchema, VigorParsePolicySettings, VigorParsePolicySettingsBase, type VigorParsePolicySettingsSchema, VigorParsePolicyStrategies, VigorParsePolicyStrategiesBase, type VigorParsePolicyStrategiesSchema, type VigorParseProcessHandler, type VigorParseRequestError, type VigorParseSchema, VigorParseSniffStrategy, type VigorParseStrategyFunc, type VigorParseTimeline, type VigorParseTimelineEvents, type VigorParseTimelineSnapshot, type VigorPlugin, type VigorPrimitive, type VigorReplaceType, type VigorResultError, VigorRetry, VigorRetryBase, VigorRetryError, type VigorRetryErrorCodes, type VigorRetryErrorDatas, VigorRetryErrorMessageFuncs, type VigorRetryErrors, type VigorRetryPipeInitialContext, type VigorRetryPipeResult, type VigorRetryPipeStepResult, type VigorRetryPipeStepRetryIf, type VigorRetryPipeStepVoid, VigorRetryPolicyAlgorithms, VigorRetryPolicyAlgorithmsBackoff, VigorRetryPolicyAlgorithmsBackoffBase, type VigorRetryPolicyAlgorithmsBackoffSchema, VigorRetryPolicyAlgorithmsBase, VigorRetryPolicyAlgorithmsConstant, VigorRetryPolicyAlgorithmsConstantBase, type VigorRetryPolicyAlgorithmsConstantSchema, VigorRetryPolicyAlgorithmsCustom, VigorRetryPolicyAlgorithmsCustomBase, type VigorRetryPolicyAlgorithmsCustomSchema, VigorRetryPolicyAlgorithmsLinear, VigorRetryPolicyAlgorithmsLinearBase, type VigorRetryPolicyAlgorithmsLinearSchema, type VigorRetryPolicyAlgorithmsSchema, VigorRetryPolicyBase, VigorRetryPolicyMiddlewares, type VigorRetryPolicyMiddlewaresApi, VigorRetryPolicyMiddlewaresBase, type VigorRetryPolicyMiddlewaresFluent, type VigorRetryPolicyMiddlewaresIntercept, type VigorRetryPolicyMiddlewaresPipe, type VigorRetryPolicyMiddlewaresSchema, type VigorRetryPolicySchema, VigorRetryPolicySettings, VigorRetryPolicySettingsBase, type VigorRetryPolicySettingsSchema, type VigorRetryProcessHandler, type VigorRetryRequestError, type VigorRetrySchema, type VigorRetryTimeline, type VigorRetryTimelineEvents, type VigorRetryTimelineSnapshot, type VigorReturnType, type VigorSimplify, VigorStatus, type VigorStringable, type VigorTimeline, type VigorTimelineItem, type VigorTimelineMiddlewareEvents, type VigorTimelineProcessEvents, type VigorTimelineSnapshot, createVigorTimelineRecorder, vigor as default, isVigorAllError, isVigorFetchError, isVigorParseError, isVigorRetryError, readVigorParseBody, vigor };

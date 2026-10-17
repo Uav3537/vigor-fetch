@@ -130,15 +130,15 @@ export class VigorAllPolicyMiddlewares<
     }
 
     /** Registers a middleware that runs before each task is invoked. */
-    public beforeEach<const N extends VigorAllEachMiddlewareFn>(func: N) {
+    public beforeEach<const N extends VigorAllEachMiddlewareFn>(func: N): VigorApply<VigorAllPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, { policy: { middlewares: { beforeEach: [N] } } }>> {
         return this._next({ policy: { middlewares: { beforeEach: [func] } } } as const)
     }
     /** Registers a middleware that runs after each task settles successfully. */
-    public afterEach<const N extends VigorAllEachMiddlewareFn>(func: N) {
+    public afterEach<const N extends VigorAllEachMiddlewareFn>(func: N): VigorApply<VigorAllPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, { policy: { middlewares: { afterEach: [N] } } }>> {
         return this._next({ policy: { middlewares: { afterEach: [func] } } } as const)
     }
     /** Registers a middleware that runs when an individual task fails. */
-    public onErrorEach<const N extends VigorAllEachOnErrorFn>(func: N) {
+    public onErrorEach<const N extends VigorAllEachOnErrorFn>(func: N): VigorApply<VigorAllPolicyMiddlewaresTypeLambda, VigorDeepMerge<T, { policy: { middlewares: { onErrorEach: [N] } } }>> {
         return this._next({ policy: { middlewares: { onErrorEach: [func] } } } as const)
     }
 }
@@ -164,7 +164,7 @@ export type VigorAllPipeStepResult<
     ? Head extends { _mode: "intercept", func: (...args: any[]) => infer Ret }
         ? VigorAllPipeStepResult<Ret, Tail>
         : Head extends { _mode: "fluent", func: (...args: any[]) => infer FR }
-            ? VigorAllPipeStepResult<VigorDeepMerge<Ctx, { result: FR }>, Tail>
+            ? VigorAllPipeStepResult<VigorDeepMerge<Ctx, { result: FR }, { result: "replace" }>, Tail>
             : VigorAllPipeStepResult<Ctx, Tail>
     : Ctx
 

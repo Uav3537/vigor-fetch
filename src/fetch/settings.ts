@@ -1,3 +1,4 @@
+import { VigorDeepMerge } from "@core/types"
 import { createBrand, VigorBrand, VigorEmpty, VigorEmptyType, VigorExcludeEmpty } from "@core/symbol"
 import { VigorFetchBase, VigorFetchSchema } from "./main"
 import { VigorStatus } from "@core/status"
@@ -10,15 +11,34 @@ export type VigorFetchPolicySettingsSchema<
 > = {
     __brand: VigorBrand<"Fetch", "Policy<Settings<Schema">
 
+    /**
+     * Whether `requestVerbose()` records a timeline. Off by default: the
+     * `timeline` stays empty and no context snapshots are taken. With it
+     * on, the nested retry/parse engines record theirs too.
+     */
+    debug: boolean
     retryHeaders: string[]
     unretryStatus: number[]
     /**
-     * When `true` (the default), a `3xx` response carrying a `Location`
-     * header navigates the page to that URL via `window.location.href`.
-     * Outside a browser (no `window.location`) this does nothing, exactly
-     * like `false`.
+     * Upper bound, in milliseconds, on a server-suggested retry delay read
+     * from `retryHeaders`. Longer values are clamped to it.
+     */
+    maxRetryAfter: number
+    /**
+     * When `true`, a response that was redirected (or a readable `3xx` with a
+     * `Location` header) navigates the page to its target via
+     * `window.location.href`. Outside a browser (no `window.location`) this
+     * does nothing, exactly like `false` (the default).
      */
     redirect: boolean
+    /**
+     * When `true` (the default), the request URL must stay inside the origin
+     * it was built from: the same domain, and within the origin's path. A
+     * `.path()` segment like `".."` that would climb out of it — e.g. user
+     * input landing in `.path("users", id)` — fails the request with
+     * `PATH_ESCAPED` instead of sending it. `..` that stays inside is fine.
+     */
+    confinePath: boolean
     maxRestarts: number
     default: ((ctx: VigorFetchContextSchema<T>) => any|Promise<any>) | VigorEmptyType
 }
@@ -26,9 +46,20 @@ export type VigorFetchPolicySettingsSchema<
 export const VigorFetchPolicySettingsBase = {
     __brand: createBrand("Fetch", "Policy<Settings<Schema"),
 
+    debug: false,
     retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after"],
-    unretryStatus: [400, 401, 403, 404, 405, 413, 422],
-    redirect: true,
+    // Statuses a retry of the same request won't change. Left retryable on
+    // purpose: 408 (timeout), 421 (misdirected — another connection may
+    // work), 423 (locked), 425 (too early), 429 (rate limit), and 5xx
+    // outages (500, 502, 503, 504, 507).
+    unretryStatus: [
+        400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417,
+        422, 424, 426, 428, 431, 451,
+        501, 505, 506, 508, 510, 511
+    ],
+    maxRetryAfter: 5 * 60 * 1000,
+    redirect: false,
+    confinePath: true,
     maxRestarts: 3,
     default: VigorEmpty
 } as const satisfies VigorFetchPolicySettingsSchema<any>
@@ -47,27 +78,49 @@ export class VigorFetchPolicySettings<
     }
 
     /** Sets (replaces) the response headers consulted to compute a server-suggested retry delay. */
-    public retryHeaders<const N extends VigorFetchSchema<any>["policy"]["settings"]["retryHeaders"]>(...strs: N) {
+    public retryHeaders<const N extends VigorFetchSchema<any>["policy"]["settings"]["retryHeaders"]>(...strs: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { retryHeaders: N } } }, { policy: { settings: { retryHeaders: "replace" } } }>> {
         return this._next({ policy: { settings: { retryHeaders: strs } } } as const, { policy: { settings: { retryHeaders: "replace" } } })
     }
     /** Sets (replaces) the HTTP status codes that should never be retried. */
-    public unretryStatus<const N extends VigorFetchSchema<any>["policy"]["settings"]["unretryStatus"]>(...nums: N) {
+    public unretryStatus<const N extends VigorFetchSchema<any>["policy"]["settings"]["unretryStatus"]>(...nums: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { unretryStatus: N } } }, { policy: { settings: { unretryStatus: "replace" } } }>> {
         return this._next({ policy: { settings: { unretryStatus: nums } } } as const, { policy: { settings: { unretryStatus: "replace" } } })
     }
+    /** Sets the upper bound, in milliseconds, on a server-suggested retry delay. */
+    public maxRetryAfter<const N extends VigorFetchSchema<any>["policy"]["settings"]["maxRetryAfter"]>(num: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { maxRetryAfter: N } } }>> {
+        return this._next({ policy: { settings: { maxRetryAfter: num } } } as const)
+    }
     /**
-     * When enabled, a `3xx` response with a `Location` header navigates the
-     * page to that URL (`window.location.href`). Without `window.location`
-     * — e.g. in Node — this behaves like `false`.
+     * When enabled, a redirected response (or a readable `3xx` with a
+     * `Location` header) navigates the page to its target
+     * (`window.location.href`). Without `window.location` — e.g. in Node —
+     * this behaves like `false`.
      */
-    public redirect<const N extends VigorFetchSchema<any>["policy"]["settings"]["redirect"]>(bool: N) {
+    /**
+     * When enabled (the default), a request whose URL would leave its
+     * origin's domain or path (e.g. through a `".."` path segment) fails with
+     * `PATH_ESCAPED` instead of being sent.
+     */
+    public confinePath<const N extends VigorFetchSchema<any>["policy"]["settings"]["confinePath"]>(bool: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { confinePath: N } } }>> {
+        return this._next({ policy: { settings: { confinePath: bool } } } as const)
+    }
+    public redirect<const N extends VigorFetchSchema<any>["policy"]["settings"]["redirect"]>(bool: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { redirect: N } } }>> {
         return this._next({ policy: { settings: { redirect: bool } } } as const)
     }
     /** Sets the maximum number of full restarts allowed. */
-    public maxRestarts<const N extends VigorFetchSchema<any>["policy"]["settings"]["maxRestarts"]>(num: N) {
+    public maxRestarts<const N extends VigorFetchSchema<any>["policy"]["settings"]["maxRestarts"]>(num: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { maxRestarts: N } } }>> {
         return this._next({ policy: { settings: { maxRestarts: num } } } as const)
     }
     /** Sets the fallback value/factory used when the request ultimately fails. */
-    public default<const N extends VigorExcludeEmpty<VigorFetchSchema<any>["policy"]["settings"]["default"]>>(func: N) {
+    public default<const N extends VigorExcludeEmpty<VigorFetchPolicySettingsSchema<T>["default"]>>(func: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { default: N } } }>> {
         return this._next({ policy: { settings: { default: func } } } as const)
+    }
+    /**
+     * Turns timeline recording on or off (off by default). Off, the
+     * `timeline` of `requestVerbose()` stays empty and no context snapshots
+     * are taken, so it costs nothing unless you're debugging. With it on,
+     * the nested retry/parse engines record theirs too.
+     */
+    public debug<const N extends VigorFetchSchema<any>["policy"]["settings"]["debug"]>(bool: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { debug: N } } }>> {
+        return this._next({ policy: { settings: { debug: bool } } } as const)
     }
 }

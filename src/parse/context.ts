@@ -3,6 +3,7 @@ import { VigorParsePolicyBase } from "./policy"
 import type { VigorParsePolicySchema, VigorParseSchema } from "./main"
 import type { VigorParsePipeInitialContext, VigorParsePipeResult, VigorParsePipeStepVoid, VigorParsePipeStepResult } from "./middlewares"
 import type { VigorDeepMerge } from "@core/types"
+import type { VigorParseTimeline } from "./timeline"
 
 /**
  * Base shape shared by every parse context variant. `R` is the type of
@@ -26,6 +27,8 @@ export type VigorParseContextSchema<
         restarted: boolean
     },
     record: Record<string, any>,
+    /** Everything this `requestVerbose()` call has gone through so far, restarts included. */
+    timeline: VigorParseTimeline,
     policy: T["policy"]
 }
 
@@ -45,7 +48,8 @@ export type VigorParseAfterContextSchema<
         >,
         // before -> 실제 파싱 실행 -> after 순서이므로, after 시작 시점의 result는
         // before가 무엇을 리턴했든 실제 파싱 결과 타입으로 재설정되어야 한다.
-        { result: VigorParsePipeInitialContext<T>["result"] }
+        { result: VigorParsePipeInitialContext<T>["result"] },
+        { result: "replace" }
     >,
     T["policy"]["middlewares"]["after"]
 >
@@ -74,5 +78,6 @@ export const VigorParseContextBase = {
         restarted: false
     },
     record: {},
+    timeline: [] as VigorParseTimeline,
     policy: VigorParsePolicyBase
 } as const satisfies VigorParseContextSchema<any>

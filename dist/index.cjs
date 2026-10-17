@@ -73,7 +73,13 @@ __export(index_exports, {
   VigorRetryPolicySettings: () => VigorRetryPolicySettings,
   VigorRetryPolicySettingsBase: () => VigorRetryPolicySettingsBase,
   VigorStatus: () => VigorStatus,
+  createVigorTimelineRecorder: () => createVigorTimelineRecorder,
   default: () => index_default,
+  isVigorAllError: () => isVigorAllError,
+  isVigorFetchError: () => isVigorFetchError,
+  isVigorParseError: () => isVigorParseError,
+  isVigorRetryError: () => isVigorRetryError,
+  readVigorParseBody: () => readVigorParseBody,
   vigor: () => vigor
 });
 module.exports = __toCommonJS(index_exports);
@@ -98,7 +104,7 @@ var VigorStatus = class {
    */
   constructor(base, config) {
     this._base = base;
-    this._config = this._merge(base, config);
+    this._config = this._merge(base, config, void 0, "replace");
   }
   /**
    * Derives a new instance by merging `patch` onto the current config.
@@ -116,9 +122,11 @@ var VigorStatus = class {
   /**
    * Deep-merges `target` onto `source`, honoring an optional per-path
    * `strategy` tree. Objects merge key by key, arrays concatenate (unless
-   * `"replace"` is specified), and any other value is overwritten.
+   * `"replace"` is specified, or `arrayMode` is `"replace"`), and any other
+   * value — including `null` — is overwritten. Only `undefined` keeps the
+   * source value.
    */
-  _merge(source, target, strategy) {
+  _merge(source, target, strategy, arrayMode = "concat") {
     const isObj = (v) => v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype;
     const deepClone = (v) => {
       if (Array.isArray(v)) return v.map(deepClone);
@@ -130,10 +138,10 @@ var VigorStatus = class {
       return v;
     };
     const merge = (a, b, s) => {
-      if (b === void 0 || b === null) return deepClone(a);
+      if (b === void 0) return deepClone(a);
       if (s === "replace") return b;
       if (Array.isArray(a) && Array.isArray(b)) {
-        return s === "replace" ? b : [...a, ...b];
+        return arrayMode === "replace" ? deepClone(b) : [...a, ...b];
       }
       if (isObj(a) && isObj(b)) {
         const r = {};
@@ -147,6 +155,14 @@ var VigorStatus = class {
       return b;
     };
     return merge(source, target, strategy);
+  }
+  /**
+   * Snapshots a runtime context for a timeline entry: a `_merge` deep clone
+   * of everything but `timeline`, so later changes to `ctx` don't reach it.
+   */
+  _snapshot(ctx) {
+    const { timeline: _, ...rest } = ctx;
+    return this._merge(rest, {});
   }
   /** The default/base config this builder was constructed with. */
   get base() {
@@ -162,7 +178,9 @@ var VigorStatus = class {
 var VigorAllPolicySettingsBase = {
   __brand: createBrand("All", "Policy<Settings<Schema"),
   concurrency: 5,
-  onlySuccess: false
+  onlySuccess: false,
+  timeout: VigorEmpty,
+  failFast: false
 };
 var VigorAllPolicySettings = class _VigorAllPolicySettings extends VigorStatus {
   constructor(config = VigorAllBase) {
@@ -178,6 +196,14 @@ var VigorAllPolicySettings = class _VigorAllPolicySettings extends VigorStatus {
   /** When enabled, filters the final result down to only the tasks that succeeded. */
   onlySuccess(bool) {
     return this._next({ policy: { settings: { onlySuccess: bool } } });
+  }
+  /** Sets the per-task timeout, in milliseconds. A task exceeding it fails with `TIMED_OUT`. */
+  timeout(num) {
+    return this._next({ policy: { settings: { timeout: num } } });
+  }
+  /** When enabled, the first unrecovered task failure aborts the remaining tasks and fails the batch with that error. */
+  failFast(bool) {
+    return this._next({ policy: { settings: { failFast: bool } } });
   }
 };
 
@@ -225,6 +251,7 @@ var VigorAllPolicyMiddlewares = class _VigorAllPolicyMiddlewares extends VigorSt
 var VigorAllPolicyBase = {
   __brand: createBrand("All", "Policy<Schema"),
   target: [],
+  abortSignals: [],
   settings: VigorAllPolicySettingsBase,
   middlewares: VigorAllPolicyMiddlewaresBase
 };
@@ -234,13 +261,15 @@ var VigorAllContextBase = {
   __brand: createBrand("All", "Context<Schema"),
   result: VigorDefault,
   policy: VigorAllPolicyBase,
-  record: {}
+  record: {},
+  timeline: []
 };
 var VigorAllEachContextBase = {
   __brand: createBrand("All", "EachContext<Schema"),
+  index: 0,
   result: VigorDefault,
   error: VigorDefault,
-  flags: { overrided: false },
+  flags: { overridden: false },
   record: {}
 };
 
@@ -272,7 +301,8 @@ var VigorError = class extends Error {
 
 // src/all/error.ts
 var VigorAllErrorMessageFuncs = {
-  EMPTY_TARGET: (_) => `Empty target list`
+  EMPTY_TARGET: (_) => `Empty target list`,
+  TIMED_OUT: ({ limit, index }) => `Task #${index} timeout: exceeded ${limit}ms`
 };
 var VigorAllError = class extends VigorError {
   /**
@@ -284,8 +314,40 @@ var VigorAllError = class extends VigorError {
     super(code, messageFn(options.data), options);
   }
 };
+var isVigorAllError = (error) => error instanceof VigorAllError;
+
+// src/core/timeline.ts
+function createVigorTimelineRecorder(timeline, snapshot) {
+  const add = (action, content) => {
+    timeline.push({ action, content, now: Date.now(), ctx: snapshot() });
+  };
+  const record = add;
+  const stage = async (stage2, middlewares, run) => {
+    if (middlewares.length === 0) return;
+    record("MIDDLEWARE_LOOP_STARTED", { stage: stage2, middlewares });
+    const started = performance.now();
+    try {
+      for (const middleware of middlewares) {
+        await run(middleware, (api) => {
+          const traced = {};
+          for (const [method, func] of Object.entries(api)) {
+            traced[method] = (...args) => {
+              record("MIDDLEWARE_API_CALLED", { stage: stage2, middleware, method, args });
+              return func(...args);
+            };
+          }
+          return traced;
+        });
+      }
+    } finally {
+      record("MIDDLEWARE_LOOP_ENDED", { stage: stage2, middlewares, took: performance.now() - started });
+    }
+  };
+  return { add, stage };
+}
 
 // src/all/main.ts
+var MAX_TIMEOUT = 2 ** 31 - 1;
 var VigorAllBase = {
   __brand: createBrand("All", "Schema"),
   policy: VigorAllPolicyBase,
@@ -302,9 +364,13 @@ var VigorAll = class _VigorAll extends VigorStatus {
   target(...funcs) {
     return this._next({ policy: { target: funcs } });
   }
+  /** Sets external abort signals that, when aborted, cancel the remaining tasks and fail the batch. */
+  abortSignals(...sig) {
+    return this._next({ policy: { abortSignals: sig } });
+  }
   settings(input) {
     if (typeof input === "function" || input instanceof VigorAllPolicySettings) {
-      const result = typeof input === "function" ? input(new VigorAllPolicySettings()) : input;
+      const result = typeof input === "function" ? input(new VigorAllPolicySettings(this.config)) : input;
       return this._next({
         policy: { settings: result.config.policy.settings }
       });
@@ -321,22 +387,51 @@ var VigorAll = class _VigorAll extends VigorStatus {
     return this._next({ policy: { middlewares: input } });
   }
   /** Runs a single task through the beforeEach/afterEach/onErrorEach middleware pipeline. */
-  async _runTask(task, policy) {
-    let ctx = this._merge(VigorAllEachContextBase, {});
+  async _runTask(task, index, policy, batchSignal, timeline) {
+    let ctx = this._merge(VigorAllEachContextBase, { index });
+    const { add, stage } = createVigorTimelineRecorder(timeline, () => this._merge(ctx, {}));
+    const timeoutController = new AbortController();
+    const signal = AbortSignal.any([batchSignal, timeoutController.signal]);
+    let timeoutId;
+    let onAbort;
+    add("TASK_STARTED", { index });
+    const started = performance.now();
+    const settle = (res) => {
+      add("TASK_ENDED", { index, success: res.success, took: performance.now() - started });
+      return res;
+    };
     try {
-      for (const beforeEach of policy.middlewares.beforeEach) await beforeEach(ctx);
-      ctx.result = await task();
-      for (const afterEach of policy.middlewares.afterEach) await afterEach(ctx);
-      return { success: true, value: ctx.result };
+      await stage("beforeEach", policy.middlewares.beforeEach, (beforeEach) => beforeEach(ctx));
+      signal.throwIfAborted();
+      const limit = policy.settings.timeout;
+      if (!isVigorEmpty(limit) && Number.isFinite(limit) && limit > 0) {
+        timeoutId = setTimeout(() => timeoutController.abort(new VigorAllError("TIMED_OUT", {
+          method: "request",
+          data: { limit, index }
+        })), Math.min(limit, MAX_TIMEOUT));
+      }
+      ctx.result = await Promise.race([
+        task(signal),
+        new Promise((_, rej) => {
+          onAbort = () => rej(signal.reason);
+          signal.addEventListener("abort", onAbort);
+        })
+      ]);
+      await stage("afterEach", policy.middlewares.afterEach, (afterEach) => afterEach(ctx));
+      return settle({ success: true, value: ctx.result });
     } catch (error) {
       ctx.error = error;
+      add("TASK_ERROR", { index, error });
       const setResult = (r) => {
-        ctx.flags.overrided = true;
+        ctx.flags.overridden = true;
         ctx.result = r;
       };
-      for (const onErrorEach of policy.middlewares.onErrorEach) await onErrorEach(ctx, { setResult });
-      if (ctx.flags.overrided) return { success: true, value: ctx.result };
-      return { success: false, value: error };
+      await stage("onErrorEach", policy.middlewares.onErrorEach, (onErrorEach, trace) => onErrorEach(ctx, trace({ setResult })));
+      if (ctx.flags.overridden) return settle({ success: true, value: ctx.result });
+      return settle({ success: false, value: error });
+    } finally {
+      clearTimeout(timeoutId);
+      if (onAbort) signal.removeEventListener("abort", onAbort);
     }
   }
   /**
@@ -357,74 +452,94 @@ var VigorAll = class _VigorAll extends VigorStatus {
     if (res.success) return res.data;
     throw res.error;
   }
-  /** Runs all tasks and returns a result/error envelope instead of throwing. */
+  /**
+   * Runs all tasks and returns a result/error envelope instead of throwing,
+   * along with the `timeline` of everything the batch went through.
+   */
   async requestVerbose() {
     return await this.requestRuntime();
   }
   /** Internal execution loop implementing the bounded-concurrency worker pool and the batch-level before/after/onResult pipeline. */
-  async requestRuntime() {
+  async requestRuntime(timeline = []) {
     const config = this._merge(this.config, {});
     const policy = config.policy;
     let ctx = this._merge(VigorAllContextBase, {
       policy
-    });
+    }, void 0, "replace");
+    ctx.timeline = timeline;
+    const { add, stage } = createVigorTimelineRecorder(timeline, () => this._snapshot(ctx));
     const setResult = (r) => {
-      ctx = { ...ctx, result: r };
+      ctx.result = r;
     };
     const throwError = (err) => {
       throw err;
     };
+    const concurrency = Number.isNaN(policy.settings.concurrency) ? 1 : Math.max(1, Math.floor(policy.settings.concurrency));
+    add("PROCESS_HANDLING", { type: "REQUEST_START", data: { tasks: policy.target.length, concurrency } });
     try {
       if (policy.target.length === 0) throw new VigorAllError("EMPTY_TARGET", {
         method: "request",
         data: {},
         context: ctx
       });
-      for (const mw of policy.middlewares.before) {
+      await stage("before", policy.middlewares.before, async (mw, trace) => {
         if (mw._mode === "fluent") {
           await mw.func(ctx);
         } else {
-          ctx = await mw.func(ctx, { throwError });
+          ctx = await mw.func(ctx, trace({ throwError })) ?? ctx;
         }
-      }
-      const concurrency = Math.max(1, policy.settings.concurrency);
+      });
       const results = new Array(policy.target.length);
+      const batchController = new AbortController();
+      const batchSignal = AbortSignal.any([...policy.abortSignals, batchController.signal]);
       let cursor = 0;
       const worker = async () => {
-        while (true) {
+        while (!batchSignal.aborted) {
           const i = cursor++;
           if (i >= policy.target.length) return;
-          results[i] = await this._runTask(policy.target[i], policy);
+          try {
+            results[i] = await this._runTask(policy.target[i], i, policy, batchSignal, timeline);
+          } catch (error) {
+            batchController.abort(error);
+            return;
+          }
+          if (!results[i].success && policy.settings.failFast) {
+            batchController.abort(results[i].value);
+          }
         }
       };
       await Promise.all(
         Array.from({ length: Math.min(concurrency, policy.target.length) }, () => worker())
       );
+      batchSignal.throwIfAborted();
       ctx.result = policy.settings.onlySuccess ? results.filter((r) => r.success).map((r) => r.value) : results.map((r) => r.value);
-      for (const mw of policy.middlewares.after) {
+      await stage("after", policy.middlewares.after, async (mw, trace) => {
         if (mw._mode === "fluent") {
           await mw.func(ctx);
         } else {
-          ctx = await mw.func(ctx, { setResult, throwError });
+          ctx = await mw.func(ctx, trace({ setResult, throwError })) ?? ctx;
         }
-      }
-      for (const mw of policy.middlewares.onResult) {
+      });
+      await stage("onResult", policy.middlewares.onResult, async (mw, trace) => {
         if (mw._mode === "fluent") {
           ctx.result = await mw.func(ctx.result);
         } else {
-          ctx = await mw.func(ctx, { setResult, throwError });
+          ctx = await mw.func(ctx, trace({ setResult, throwError })) ?? ctx;
         }
-      }
+      });
       return {
         success: true,
         data: ctx.result,
-        error: null
+        error: null,
+        timeline
       };
     } catch (error) {
+      add("PROCESS_HANDLING", { type: "REQUEST_ERROR", data: { error } });
       return {
         success: false,
         data: null,
-        error
+        error,
+        timeline
       };
     }
   }
@@ -433,8 +548,10 @@ var VigorAll = class _VigorAll extends VigorStatus {
 // src/fetch/settings.ts
 var VigorFetchPolicySettingsBase = {
   __brand: createBrand("Fetch", "Policy<Settings<Schema"),
-  retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after", "chrome-proxy-next-link"],
+  retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after"],
   unretryStatus: [400, 401, 403, 404, 405, 413, 422],
+  maxRetryAfter: 5 * 60 * 1e3,
+  redirect: false,
   maxRestarts: 3,
   default: VigorEmpty
 };
@@ -445,13 +562,26 @@ var VigorFetchPolicySettings = class _VigorFetchPolicySettings extends VigorStat
   _create(config) {
     return new _VigorFetchPolicySettings(config);
   }
-  /** Sets response headers consulted to compute a server-suggested retry delay. */
+  /** Sets (replaces) the response headers consulted to compute a server-suggested retry delay. */
   retryHeaders(...strs) {
-    return this._next({ policy: { settings: { retryHeaders: strs } } });
+    return this._next({ policy: { settings: { retryHeaders: strs } } }, { policy: { settings: { retryHeaders: "replace" } } });
   }
-  /** Sets HTTP status codes that should never be retried. */
+  /** Sets (replaces) the HTTP status codes that should never be retried. */
   unretryStatus(...nums) {
-    return this._next({ policy: { settings: { unretryStatus: nums } } });
+    return this._next({ policy: { settings: { unretryStatus: nums } } }, { policy: { settings: { unretryStatus: "replace" } } });
+  }
+  /** Sets the upper bound, in milliseconds, on a server-suggested retry delay. */
+  maxRetryAfter(num) {
+    return this._next({ policy: { settings: { maxRetryAfter: num } } });
+  }
+  /**
+   * When enabled, a redirected response (or a readable `3xx` with a
+   * `Location` header) navigates the page to its target
+   * (`window.location.href`). Without `window.location` — e.g. in Node —
+   * this behaves like `false`.
+   */
+  redirect(bool) {
+    return this._next({ policy: { settings: { redirect: bool } } });
   }
   /** Sets the maximum number of full restarts allowed. */
   maxRestarts(num) {
@@ -599,6 +729,7 @@ var VigorRetryError = class extends VigorError {
     super(code, messageFn(options.data), options);
   }
 };
+var isVigorRetryError = (error) => error instanceof VigorRetryError;
 
 // src/retry/algorithms.ts
 function VigorJitter(jitter) {
@@ -847,10 +978,12 @@ var VigorRetryContextBase = {
     overridden: false
   },
   record: {},
+  timeline: [],
   policy: VigorRetryPolicyBase
 };
 
 // src/retry/main.ts
+var MAX_TIMEOUT2 = 2 ** 31 - 1;
 var VigorRetryBase = {
   __brand: createBrand("Retry", "Schema"),
   policy: VigorRetryPolicyBase,
@@ -877,7 +1010,7 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
   }
   settings(input) {
     if (typeof input === "function" || input instanceof VigorRetryPolicySettings) {
-      const result = typeof input === "function" ? input(new VigorRetryPolicySettings()) : input;
+      const result = typeof input === "function" ? input(new VigorRetryPolicySettings(this.config)) : input;
       return this._next({
         policy: { settings: result.config.policy.settings }
       });
@@ -927,30 +1060,45 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
     if (res.success) return res.data;
     throw res.error;
   }
-  /** Runs the target and returns a result/error envelope instead of throwing. */
+  /**
+   * Runs the target and returns a result/error envelope instead of throwing,
+   * along with the `timeline` of everything the run went through.
+   */
   async requestVerbose() {
     return await this.requestRuntime();
   }
-  /** Internal execution loop implementing the attempt/retry/restart lifecycle. */
-  async requestRuntime(restartAttempt = 1) {
+  /**
+   * Internal execution loop implementing the attempt/retry/restart lifecycle.
+   * Never throws: every failure, including one from `onError` or `default`,
+   * comes back as an envelope carrying the timeline. A restart passes the
+   * same `timeline` on, so it keeps growing across runs.
+   */
+  async requestRuntime(restartAttempt = 1, timeline = []) {
     const config = this._merge(this.config, {});
     let ctx = this._merge(VigorRetryContextBase, {
       policy: config.policy
-    });
-    if (isVigorEmpty(ctx.policy.target)) throw new VigorRetryError("VALUE_REQUIRED", {
+    }, void 0, "replace");
+    ctx.timeline = timeline;
+    const { add, stage } = createVigorTimelineRecorder(timeline, () => this._snapshot(ctx));
+    add("PROCESS_HANDLING", { type: "REQUEST_START", data: { restartAttempt } });
+    const fail = (error) => ({ success: false, data: null, error, timeline });
+    if (isVigorEmpty(ctx.policy.target)) return fail(new VigorRetryError("VALUE_REQUIRED", {
       method: "request",
       data: {
         key: "target"
       },
       context: ctx
-    });
+    }));
     const target = ctx.policy.target;
     const throwError = (err) => {
       throw err;
     };
+    const outerSignals = AbortSignal.any(ctx.policy.abortSignals);
     try {
       while (ctx.system.attempt < ctx.policy.settings.maxAttempts) {
         ctx.system.attempt++;
+        add("ATTEMPT_INCREASED", { attempt: ctx.system.attempt });
+        add("PROCESS_HANDLING", { type: "RETRY_START", data: { attempt: ctx.system.attempt } });
         try {
           const breakRetry = (err) => {
             ctx.flags.brokeRetry = true;
@@ -962,11 +1110,6 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
             userController.signal,
             timeoutController.signal
           ]);
-          const outerSignals = AbortSignal.any(ctx.policy.abortSignals);
-          const autoBreak = () => {
-            ctx.flags.brokeRetry = true;
-          };
-          outerSignals.addEventListener("abort", autoBreak);
           const mergedSignals = AbortSignal.any([
             innerSignals,
             outerSignals
@@ -974,25 +1117,31 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
           let onAbort;
           let timeoutId;
           try {
-            for (const middleware of ctx.policy.middlewares.before) {
+            await stage("before", ctx.policy.middlewares.before, async (middleware, trace) => {
               if (middleware._mode === "fluent") {
                 await middleware.func(ctx);
               } else {
-                ctx = await middleware.func(ctx, {
+                ctx = await middleware.func(ctx, trace({
                   abort: (reason) => userController.abort(reason),
                   throwError,
                   breakRetry
-                });
+                })) ?? ctx;
               }
-            }
+            });
             mergedSignals.throwIfAborted();
-            timeoutId = setTimeout(() => timeoutController.abort(new VigorRetryError("TIMED_OUT", {
-              method: "request",
-              data: {
-                limit: ctx.policy.settings.timeout
-              },
-              context: ctx
-            })), ctx.policy.settings.timeout);
+            const limit = ctx.policy.settings.timeout;
+            if (Number.isFinite(limit) && limit > 0) {
+              timeoutId = setTimeout(() => timeoutController.abort(new VigorRetryError("TIMED_OUT", {
+                method: "request",
+                data: {
+                  limit
+                },
+                context: ctx
+              })), Math.min(limit, MAX_TIMEOUT2));
+            }
+            const attempt = ctx.system.attempt;
+            add("TARGET_REQUEST_STARTED", { attempt });
+            const started = performance.now();
             ctx.result = await Promise.race([
               target(mergedSignals),
               new Promise((_, rej) => {
@@ -1000,71 +1149,91 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
                 mergedSignals.addEventListener("abort", onAbort);
               })
             ]);
-            for (const middleware of ctx.policy.middlewares.after) {
+            add("TARGET_REQUEST_ENDED", { attempt, took: performance.now() - started });
+            await stage("after", ctx.policy.middlewares.after, async (middleware, trace) => {
               if (middleware._mode === "fluent") {
                 await middleware.func(ctx);
               } else {
-                ctx = await middleware.func(ctx, {
+                ctx = await middleware.func(ctx, trace({
                   throwError
-                });
+                })) ?? ctx;
               }
-            }
+            });
             const setResult = (res) => {
               ctx.result = res;
             };
-            for (const middleware of ctx.policy.middlewares.onResult) {
+            await stage("onResult", ctx.policy.middlewares.onResult, async (middleware, trace) => {
               if (middleware._mode === "fluent") {
                 ctx.result = await middleware.func(ctx.result);
               } else {
-                ctx = await middleware.func(ctx, {
+                ctx = await middleware.func(ctx, trace({
                   setResult,
                   throwError
-                });
+                })) ?? ctx;
               }
-            }
+            });
             return {
               success: true,
               data: ctx.result,
-              error: null
+              error: null,
+              timeline
             };
           } finally {
             clearTimeout(timeoutId);
-            outerSignals.removeEventListener("abort", autoBreak);
             if (onAbort) mergedSignals.removeEventListener("abort", onAbort);
           }
         } catch (error) {
           ctx.error = error;
+          add("PROCESS_HANDLING", { type: "RETRY_ERROR", data: { attempt: ctx.system.attempt, error } });
+          if (outerSignals.aborted) ctx.flags.brokeRetry = true;
           if (ctx.flags.brokeRetry) throw ctx.error;
           ctx.flags.doRetry = true;
           const proceedRetry = () => ctx.flags.doRetry = true;
           const cancelRetry = () => ctx.flags.doRetry = false;
-          for (const middleware of ctx.policy.middlewares.retryIf) {
+          await stage("retryIf", ctx.policy.middlewares.retryIf, async (middleware, trace) => {
             if (middleware._mode === "fluent") {
               ctx.flags.doRetry = await middleware.func(ctx.error);
             } else {
-              ctx = await middleware.func(ctx, {
+              ctx = await middleware.func(ctx, trace({
                 proceedRetry,
                 cancelRetry
-              });
+              })) ?? ctx;
             }
-          }
+          });
           if (!ctx.flags.doRetry) throw ctx.error;
+          if (ctx.system.attempt >= ctx.policy.settings.maxAttempts) break;
           ctx.system.delay = ctx.policy.algorithms._calculateDelay(ctx.system.attempt, ctx.policy.algorithms);
           const setDelay = (num) => {
             ctx.system.delay = num;
           };
-          for (const middleware of ctx.policy.middlewares.onRetry) {
+          await stage("onRetry", ctx.policy.middlewares.onRetry, async (middleware, trace) => {
             if (middleware._mode === "fluent") {
               await middleware.func(ctx.error);
             } else {
-              ctx = await middleware.func(ctx, {
+              ctx = await middleware.func(ctx, trace({
                 throwError,
                 setDelay
-              });
+              })) ?? ctx;
             }
-          }
-          const delay = ctx.system.delay;
-          await new Promise((res) => setTimeout(res, delay));
+          });
+          const delay = Math.min(Math.max(0, Number(ctx.system.delay) || 0), MAX_TIMEOUT2);
+          add("RETRY_DELAY", { attempt: ctx.system.attempt, delay });
+          await new Promise((res, rej) => {
+            if (outerSignals.aborted) {
+              ctx.flags.brokeRetry = true;
+              return rej(outerSignals.reason);
+            }
+            const onAbort = () => {
+              clearTimeout(id);
+              ctx.flags.brokeRetry = true;
+              rej(outerSignals.reason);
+            };
+            const id = setTimeout(() => {
+              outerSignals.removeEventListener("abort", onAbort);
+              res();
+            }, delay);
+            outerSignals.addEventListener("abort", onAbort, { once: true });
+          });
         }
       }
       throw new VigorRetryError("RETRY_EXHAUSTED", {
@@ -1078,6 +1247,7 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
       });
     } catch (error) {
       ctx.error = error;
+      add("PROCESS_HANDLING", { type: "REQUEST_ERROR", data: { error } });
       ctx.flags.doRestart = false;
       ctx.flags.overridden = false;
       const setResult = (res) => {
@@ -1086,47 +1256,55 @@ var VigorRetry = class _VigorRetry extends VigorStatus {
       };
       const proceedRestart = () => ctx.flags.doRestart = true;
       const cancelRestart = () => ctx.flags.doRestart = false;
-      for (const middleware of ctx.policy.middlewares.onError) {
-        if (middleware._mode === "fluent") {
-          await middleware.func(ctx.error);
-        } else {
-          ctx = await middleware.func(ctx, {
-            setResult,
-            throwError,
-            proceedRestart,
-            cancelRestart
-          });
-        }
+      try {
+        await stage("onError", ctx.policy.middlewares.onError, async (middleware, trace) => {
+          if (middleware._mode === "fluent") {
+            await middleware.func(ctx.error);
+          } else {
+            ctx = await middleware.func(ctx, trace({
+              setResult,
+              throwError,
+              proceedRestart,
+              cancelRestart
+            })) ?? ctx;
+          }
+        });
+      } catch (err) {
+        return fail(err);
       }
       if (ctx.flags.doRestart) {
-        if (restartAttempt + 1 > ctx.policy.settings.maxRestarts) throw new VigorRetryError("RESTART_EXHAUSTED", {
+        if (restartAttempt > ctx.policy.settings.maxRestarts) return fail(new VigorRetryError("RESTART_EXHAUSTED", {
           method: "request",
           cause: ctx.error,
           data: {
             maxAttempts: ctx.policy.settings.maxRestarts,
             error: ctx.error
-          }
-        });
-        return await this.requestRuntime(restartAttempt + 1);
+          },
+          context: ctx
+        }));
+        add("PROCESS_HANDLING", { type: "REQUEST_RESTART", data: { restartAttempt: restartAttempt + 1 } });
+        return await this.requestRuntime(restartAttempt + 1, timeline);
       }
       if (ctx.flags.overridden) return {
         success: true,
         data: ctx.result,
-        error: null
+        error: null,
+        timeline
       };
       if (!isVigorEmpty(ctx.policy.settings.default)) {
-        const data = await ctx.policy.settings.default(ctx);
-        return {
-          success: true,
-          data,
-          error: null
-        };
+        try {
+          const data = await ctx.policy.settings.default(ctx);
+          return {
+            success: true,
+            data,
+            error: null,
+            timeline
+          };
+        } catch (err) {
+          return fail(err);
+        }
       }
-      return {
-        success: false,
-        data: null,
-        error: ctx.error
-      };
+      return fail(ctx.error);
     }
   }
 };
@@ -1212,50 +1390,136 @@ var VigorParseError = class extends VigorError {
     super(code, messageFn(options.data), options);
   }
 };
+var isVigorParseError = (error) => error instanceof VigorParseError;
 
 // src/parse/strategies.ts
 var VigorParsePolicyStrategiesBase = {
   __brand: createBrand("Parse", "Policy<Strategies<Schema"),
   funcs: []
 };
+var bodyCache = /* @__PURE__ */ new WeakMap();
+async function readVigorParseBody(source) {
+  let bytes = bodyCache.get(source);
+  if (!bytes) {
+    bytes = source.body === null ? Promise.resolve(new Uint8Array(0)) : source.arrayBuffer().then((buf) => new Uint8Array(buf));
+    bodyCache.set(source, bytes);
+  }
+  return {
+    bytes: await bytes,
+    contentType: source.headers.get("content-type"),
+    status: source instanceof Response ? source.status : null,
+    headers: source.headers,
+    source
+  };
+}
+var utf8 = new TextDecoder("utf-8");
+var getCharset = (contentType) => /;\s*charset\s*=\s*"?([^";\s]+)"?/i.exec(contentType ?? "")?.[1] ?? "utf-8";
+var getMimeType = (contentType) => (contentType ?? "").split(";")[0].trim().toLowerCase();
+var decodeText = (body, fatal = false) => {
+  let decoder;
+  try {
+    decoder = new TextDecoder(getCharset(body.contentType), { fatal });
+  } catch {
+    decoder = new TextDecoder("utf-8", { fatal });
+  }
+  return decoder.decode(body.bytes);
+};
+var parseJson = (body) => JSON.parse(utf8.decode(body.bytes));
+var parseJsonOrNull = (body) => {
+  const text = utf8.decode(body.bytes);
+  return text.trim() === "" ? null : JSON.parse(text);
+};
+var hexValue = (b) => {
+  if (b >= 48 && b <= 57) return b - 48;
+  if (b >= 65 && b <= 70) return b - 65 + 10;
+  if (b >= 97 && b <= 102) return b - 97 + 10;
+  return -1;
+};
+var decodeFormComponent = (input) => {
+  const out = new Uint8Array(input.length);
+  let n = 0;
+  for (let i = 0; i < input.length; i++) {
+    const b = input[i];
+    if (b === 43) {
+      out[n++] = 32;
+      continue;
+    }
+    if (b === 37 && i + 2 < input.length) {
+      const hi = hexValue(input[i + 1]);
+      const lo = hexValue(input[i + 2]);
+      if (hi >= 0 && lo >= 0) {
+        out[n++] = hi * 16 + lo;
+        i += 2;
+        continue;
+      }
+    }
+    out[n++] = b;
+  }
+  return utf8.decode(out.subarray(0, n));
+};
+var parseUrlEncoded = (body) => {
+  const form = new FormData();
+  const { bytes } = body;
+  let start = 0;
+  for (let i = 0; i <= bytes.length; i++) {
+    if (i < bytes.length && bytes[i] !== 38) continue;
+    const pair = bytes.subarray(start, i);
+    start = i + 1;
+    if (pair.length === 0) continue;
+    const eq = pair.indexOf(61);
+    const name = eq === -1 ? pair : pair.subarray(0, eq);
+    const value = eq === -1 ? new Uint8Array(0) : pair.subarray(eq + 1);
+    form.append(decodeFormComponent(name), decodeFormComponent(value));
+  }
+  return form;
+};
+var parseMultipart = (body) => new Response(body.bytes, { headers: { "content-type": body.contentType ?? "" } }).formData();
+var parseFormData = (body) => {
+  const mime = getMimeType(body.contentType);
+  if (mime === "application/x-www-form-urlencoded") return parseUrlEncoded(body);
+  if (mime === "multipart/form-data") return parseMultipart(body);
+  throw new VigorParseError("INVALID_CONTENT_TYPE", {
+    method: "parseFormData",
+    data: { received: body.contentType }
+  });
+};
+var toArrayBuffer = (body) => body.bytes.slice().buffer;
+var toBlob = (body) => new Blob([body.bytes], { type: body.contentType ?? "" });
+var NoBodyStatus = [204, 205, 304];
 var ContentTypeParsers = [
-  { header: "application/json", regExp: /application\/(.+\+)?json(.+\+)?/i, method: (res) => res.json() },
-  { header: "application/xml", regExp: /application\/(.+\+)?xml(.+\+)?/i, method: (res) => res.text() },
-  { header: "application/x-www-form-urlencoded", regExp: /application\/(.+\+)?x-www-form-urlencoded(.+\+)?/i, method: (res) => res.formData() },
-  { header: "application/octet-stream", regExp: /application\/(.+\+)?octet-stream(.+\+)?/i, method: (res) => res.arrayBuffer() },
-  { header: "image/*", regExp: /^image\/.+/i, method: (res) => res.blob() },
-  { header: "audio/*", regExp: /^audio\/.+/i, method: (res) => res.blob() },
-  { header: "video/*", regExp: /^video\/.+/i, method: (res) => res.blob() },
-  { header: "multipart/form-data", regExp: /multipart\/(.+\+)?form-data(.+\+)?/i, method: (res) => res.formData() },
-  { header: "text/*", regExp: /^text\/.+/i, method: (res) => res.text() }
+  { header: "application/json", regExp: /application\/(.+\+)?json(.+\+)?/i, method: parseJsonOrNull },
+  { header: "application/xml", regExp: /application\/(.+\+)?xml(.+\+)?/i, method: (body) => decodeText(body) },
+  { header: "application/x-www-form-urlencoded", regExp: /application\/(.+\+)?x-www-form-urlencoded(.+\+)?/i, method: parseUrlEncoded },
+  { header: "application/octet-stream", regExp: /application\/(.+\+)?octet-stream(.+\+)?/i, method: toArrayBuffer },
+  { header: "image/*", regExp: /^image\/.+/i, method: toBlob },
+  { header: "audio/*", regExp: /^audio\/.+/i, method: toBlob },
+  { header: "video/*", regExp: /^video\/.+/i, method: toBlob },
+  { header: "multipart/form-data", regExp: /multipart\/(.+\+)?form-data(.+\+)?/i, method: parseMultipart },
+  { header: "text/*", regExp: /^text\/.+/i, method: (body) => decodeText(body) }
 ];
 var SniffMethods = [
-  { title: "json", method: (res) => res.json() },
-  { title: "formData", method: (res) => res.formData() },
-  { title: "text", method: (res) => res.text() },
-  { title: "blob", method: (res) => res.blob() }
+  { title: "json", method: parseJson },
+  { title: "formData", method: parseFormData },
+  { title: "text", method: (body) => decodeText(body, true) },
+  { title: "blob", method: toBlob }
 ];
-var VigorParseContentTypeStrategy = async (response) => {
-  const contentTypeHeader = response.headers.get("content-type");
-  if (!contentTypeHeader) throw new VigorParseError("INVALID_CONTENT_TYPE", {
-    method: "VigorParseContentTypeStrategy",
-    data: { received: contentTypeHeader }
-  });
-  const toDo = ContentTypeParsers.find((parser) => parser.regExp.test(contentTypeHeader));
+var VigorParseContentTypeStrategy = async (body) => {
+  if (body.bytes.length === 0 || body.status !== null && NoBodyStatus.includes(body.status)) return null;
+  if (!body.contentType) return decodeText(body);
+  const toDo = ContentTypeParsers.find((parser) => parser.regExp.test(body.contentType));
   if (!toDo) throw new VigorParseError("PARSER_NOT_FOUND", {
     method: "VigorParseContentTypeStrategy",
     data: {
       expected: ContentTypeParsers.map((p) => p.header),
-      received: contentTypeHeader
+      received: body.contentType
     }
   });
-  return await toDo.method(response);
+  return await toDo.method(body);
 };
-var VigorParseSniffStrategy = async (response) => {
-  for (const [i, parser] of SniffMethods.entries()) {
-    const cloned = i === SniffMethods.length - 1 ? response : response.clone();
+var VigorParseSniffStrategy = async (body) => {
+  for (const parser of SniffMethods) {
     try {
-      return await parser.method(cloned);
+      return await parser.method(body);
     } catch {
     }
   }
@@ -1288,35 +1552,35 @@ var VigorParsePolicyStrategies = class _VigorParsePolicyStrategies extends Vigor
   contentType(replace) {
     return this._set([VigorParseContentTypeStrategy], replace);
   }
-  /** Adds the sniffing (try-each-method) parsing strategy. */
+  /** Adds the sniffing (try-each-format) parsing strategy. */
   sniff(replace) {
     return this._set([VigorParseSniffStrategy], replace);
   }
-  /** Adds a strategy that always parses the response as JSON. */
+  /** Adds a strategy that always parses the body as JSON. */
   json(replace) {
-    return this._set([(res) => res.json()], replace);
+    return this._set([parseJson], replace);
   }
-  /** Adds a strategy that always parses the response as text. */
+  /** Adds a strategy that always parses the body as text, in its declared `charset`. */
   text(replace) {
-    return this._set([(res) => res.text()], replace);
+    return this._set([(body) => decodeText(body)], replace);
   }
-  /** Adds a strategy that always parses the response as an `ArrayBuffer`. */
+  /** Adds a strategy that always parses the body as an `ArrayBuffer`. */
   arrayBuffer(replace) {
-    return this._set([(res) => res.arrayBuffer()], replace);
+    return this._set([toArrayBuffer], replace);
   }
-  /** Adds a strategy that always parses the response as a `Blob`. */
+  /** Adds a strategy that always parses the body as a `Blob`. */
   blob(replace) {
-    return this._set([(res) => res.blob()], replace);
+    return this._set([toBlob], replace);
   }
-  /** Adds a strategy that always parses the response as a `Uint8Array`. */
+  /** Adds a strategy that always parses the body as a `Uint8Array`. */
   bytes(replace) {
-    return this._set([(res) => res.arrayBuffer().then((b) => new Uint8Array(b))], replace);
+    return this._set([(body) => body.bytes.slice()], replace);
   }
-  /** Adds a strategy that always parses the response as `FormData`. */
+  /** Adds a strategy that always parses the body as `FormData` (`x-www-form-urlencoded` or `multipart/form-data`). */
   formData(replace) {
-    return this._set([(res) => res.formData()], replace);
+    return this._set([parseFormData], replace);
   }
-  /** Adds a user-supplied custom parsing strategy. */
+  /** Adds a user-supplied custom parsing strategy. It receives the body already read into bytes. */
   custom(func, replace) {
     return this._set([func], replace);
   }
@@ -1338,10 +1602,11 @@ var VigorParseContextBase = {
   error: VigorDefault,
   response: VigorDefault,
   flags: {
-    overrided: false,
+    overridden: false,
     restarted: false
   },
   record: {},
+  timeline: [],
   policy: VigorParsePolicyBase
 };
 
@@ -1364,7 +1629,7 @@ var VigorParse = class _VigorParse extends VigorStatus {
   }
   settings(input) {
     if (typeof input === "function" || input instanceof VigorParsePolicySettings) {
-      const result = typeof input === "function" ? input(new VigorParsePolicySettings()) : input;
+      const result = typeof input === "function" ? input(new VigorParsePolicySettings(this.config)) : input;
       return this._next({
         policy: { settings: result.config.policy.settings }
       });
@@ -1407,46 +1672,63 @@ var VigorParse = class _VigorParse extends VigorStatus {
     if (res.success) return res.data;
     throw res.error;
   }
-  /** Runs parsing and returns a result/error envelope instead of throwing. */
+  /**
+   * Runs parsing and returns a result/error envelope instead of throwing,
+   * along with the `timeline` of everything the run went through.
+   */
   async requestVerbose() {
     return await this.requestRuntime();
   }
-  /** Internal execution loop implementing the strategy fallback and restart handling. */
-  async requestRuntime(restartAttempt = 1) {
+  /**
+   * Internal execution loop implementing the strategy fallback and restart
+   * handling. Never throws: every failure, including one from `onError` or
+   * `default`, comes back as an envelope carrying the timeline. A restart
+   * passes the same `timeline` on, so it keeps growing across runs.
+   */
+  async requestRuntime(restartAttempt = 1, timeline = []) {
     const config = this._merge(this.config, {});
     let ctx = this._merge(VigorParseContextBase, {
       policy: config.policy
-    });
-    if (isVigorDefault(ctx.policy.target)) throw new VigorParseError("VALUE_REQUIRED", {
+    }, void 0, "replace");
+    ctx.timeline = timeline;
+    const { add, stage } = createVigorTimelineRecorder(timeline, () => this._snapshot(ctx));
+    add("PROCESS_HANDLING", { type: "REQUEST_START", data: { restartAttempt } });
+    const fail = (error) => ({ success: false, data: null, error, timeline });
+    if (isVigorDefault(ctx.policy.target)) return fail(new VigorParseError("VALUE_REQUIRED", {
       method: "request",
       data: { key: "target" },
       context: ctx
-    });
+    }));
     ctx.response = ctx.policy.target;
     const throwError = (err) => {
       throw err;
     };
     try {
-      for (const middleware of ctx.policy.middlewares.before) {
+      await stage("before", ctx.policy.middlewares.before, async (middleware, trace) => {
         if (middleware._mode === "fluent") {
           await middleware.func(ctx);
         } else {
-          ctx = await middleware.func(ctx, { throwError });
+          ctx = await middleware.func(ctx, trace({ throwError })) ?? ctx;
         }
-      }
+      });
       if (ctx.policy.settings.raw) {
         ctx.result = ctx.response;
       } else {
-        const response = ctx.response;
+        const readStarted = performance.now();
+        const body = await readVigorParseBody(ctx.response);
+        add("BODY_READ", { size: body.bytes.byteLength, took: performance.now() - readStarted });
         const funcs = ctx.policy.strategies.funcs.length > 0 ? ctx.policy.strategies.funcs : [VigorParseContentTypeStrategy];
         let parsed = false;
-        for (const [i, func] of funcs.entries()) {
-          const cloned = i === funcs.length - 1 ? response : response.clone();
+        for (const [index, func] of funcs.entries()) {
+          add("STRATEGY_STARTED", { index });
+          const started = performance.now();
           try {
-            ctx.result = await func(cloned);
+            ctx.result = await func(body);
+            add("STRATEGY_SUCCEEDED", { index, took: performance.now() - started });
             parsed = true;
             break;
-          } catch {
+          } catch (error) {
+            add("STRATEGY_FAILED", { index, error, took: performance.now() - started });
           }
         }
         if (!parsed) throw new VigorParseError("PARSER_ALL_FAILED", {
@@ -1458,44 +1740,50 @@ var VigorParse = class _VigorParse extends VigorStatus {
       const setResult = (res) => {
         ctx.result = res;
       };
-      for (const middleware of ctx.policy.middlewares.after) {
+      await stage("after", ctx.policy.middlewares.after, async (middleware, trace) => {
         if (middleware._mode === "fluent") {
           await middleware.func(ctx);
         } else {
-          ctx = await middleware.func(ctx, { setResult, throwError });
+          ctx = await middleware.func(ctx, trace({ setResult, throwError })) ?? ctx;
         }
-      }
-      for (const middleware of ctx.policy.middlewares.onResult) {
+      });
+      await stage("onResult", ctx.policy.middlewares.onResult, async (middleware, trace) => {
         if (middleware._mode === "fluent") {
           ctx.result = await middleware.func(ctx.result);
         } else {
-          ctx = await middleware.func(ctx, { setResult, throwError });
+          ctx = await middleware.func(ctx, trace({ setResult, throwError })) ?? ctx;
         }
-      }
+      });
       return {
         success: true,
         data: ctx.result,
-        error: null
+        error: null,
+        timeline
       };
     } catch (error) {
       ctx.error = error;
-      ctx.flags.overrided = false;
+      add("PROCESS_HANDLING", { type: "REQUEST_ERROR", data: { error } });
+      ctx.flags.overridden = false;
       ctx.flags.restarted = false;
       const setResult = (res) => {
-        ctx.flags.overrided = true;
+        ctx.flags.overridden = true;
         ctx.result = res;
       };
       const proceedRestart = () => ctx.flags.restarted = true;
       const cancelRestart = () => ctx.flags.restarted = false;
-      for (const middleware of ctx.policy.middlewares.onError) {
-        if (middleware._mode === "fluent") {
-          await middleware.func(ctx.error);
-        } else {
-          ctx = await middleware.func(ctx, { setResult, throwError, proceedRestart, cancelRestart });
-        }
+      try {
+        await stage("onError", ctx.policy.middlewares.onError, async (middleware, trace) => {
+          if (middleware._mode === "fluent") {
+            await middleware.func(ctx.error);
+          } else {
+            ctx = await middleware.func(ctx, trace({ setResult, throwError, proceedRestart, cancelRestart })) ?? ctx;
+          }
+        });
+      } catch (err) {
+        return fail(err);
       }
       if (ctx.flags.restarted) {
-        if (restartAttempt + 1 > ctx.policy.settings.maxRestarts) throw new VigorParseError("RESTART_EXHAUSTED", {
+        if (restartAttempt > ctx.policy.settings.maxRestarts) return fail(new VigorParseError("RESTART_EXHAUSTED", {
           method: "request",
           cause: ctx.error,
           data: {
@@ -1503,27 +1791,30 @@ var VigorParse = class _VigorParse extends VigorStatus {
             error: ctx.error
           },
           context: ctx
-        });
-        return await this.requestRuntime(restartAttempt + 1);
+        }));
+        add("PROCESS_HANDLING", { type: "REQUEST_RESTART", data: { restartAttempt: restartAttempt + 1 } });
+        return await this.requestRuntime(restartAttempt + 1, timeline);
       }
-      if (ctx.flags.overrided) return {
+      if (ctx.flags.overridden) return {
         success: true,
         data: ctx.result,
-        error: null
+        error: null,
+        timeline
       };
       if (!isVigorEmpty(ctx.policy.settings.default)) {
-        const data = await ctx.policy.settings.default(ctx);
-        return {
-          success: true,
-          data,
-          error: null
-        };
+        try {
+          const data = await ctx.policy.settings.default(ctx);
+          return {
+            success: true,
+            data,
+            error: null,
+            timeline
+          };
+        } catch (err) {
+          return fail(err);
+        }
       }
-      return {
-        success: false,
-        data: null,
-        error: ctx.error
-      };
+      return fail(ctx.error);
     }
   }
 };
@@ -1558,6 +1849,7 @@ var VigorFetchContextBase = {
     restarted: false
   },
   record: {},
+  timeline: [],
   policy: VigorFetchPolicyBase
 };
 
@@ -1565,9 +1857,11 @@ var VigorFetchContextBase = {
 var VigorFetchErrorMessageFuncs = {
   VALUE_REQUIRED: ({ key }) => `Value Required (missing ${key})`,
   INVALID_BODY: ({ received }) => `Invalid Body type: ${typeof received}`,
+  BODY_NOT_ALLOWED: ({ method }) => `A ${method} request cannot have a body`,
   INVALID_PROTOCOL: ({ origin, base }) => base ? `Invalid URL: could not resolve "${origin}" against base "${base}"` : `Invalid URL: "${origin}" is not an absolute URL, and no base (window.location) is available to resolve it against \u2014 pass an absolute origin (e.g. "https://api.example.com") when running outside a browser`,
   FETCH_FAILED: ({ status, statusText }) => `Fetch Failed: ${status} ${statusText}`,
-  RESTART_EXHAUSTED: ({ maxAttempts }) => `Restart exhausted, (max ${maxAttempts})`
+  RESTART_EXHAUSTED: ({ maxAttempts }) => `Restart exhausted, (max ${maxAttempts})`,
+  REDIRECTED: ({ url, status }) => `Redirected (${status}) to "${url}" \u2014 navigating away`
 };
 var VigorFetchError = class extends VigorError {
   /**
@@ -1579,6 +1873,7 @@ var VigorFetchError = class extends VigorError {
     super(code, messageFn(options.data), options);
   }
 };
+var isVigorFetchError = (error) => error instanceof VigorFetchError;
 
 // src/fetch/main.ts
 var VigorFetchBase = {
@@ -1635,8 +1930,9 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
    *  simply replaced.
    */
   body(mode, obj) {
-    if (mode === "overwrite") return this._next({ policy: { body: obj } }, { policy: { body: "replace" } });
-    return this._next({ policy: { body: obj } });
+    const prev = this.config.policy.body;
+    const body = mode === "merge" && this._isPlainObject(prev) && this._isPlainObject(obj) ? { ...prev, ...obj } : obj;
+    return this._next({ policy: { body } }, { policy: { body: "replace" } });
   }
   /**
    * Sets additional `RequestInit` options other than headers/body/method/signal
@@ -1648,17 +1944,19 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
    *  value onto the previous options.
    */
   options(mode, obj) {
-    if (mode === "overwrite") return this._next({ policy: { extra: obj } }, { policy: { extra: "replace" } });
-    return this._next({ policy: { extra: obj } });
+    const extra = mode === "merge" ? { ...this.config.policy.extra, ...obj } : obj;
+    return this._next({ policy: { extra } }, { policy: { extra: "replace" } });
   }
   settings(input) {
+    const strategy = { policy: { settings: { retryHeaders: "replace", unretryStatus: "replace" } } };
     if (typeof input === "function" || input instanceof VigorFetchPolicySettings) {
-      const result = typeof input === "function" ? input(new VigorFetchPolicySettings()) : input;
+      const result = typeof input === "function" ? input(new VigorFetchPolicySettings(this.config)) : input;
       return this._next(
-        { policy: { settings: result.config.policy.settings } }
+        { policy: { settings: result.config.policy.settings } },
+        strategy
       );
     }
-    return this._next({ policy: { settings: input } });
+    return this._next({ policy: { settings: input } }, strategy);
   }
   middlewares(input) {
     if (typeof input === "function" || input instanceof VigorFetchPolicyMiddlewares) {
@@ -1682,6 +1980,10 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
       return this._next({ policy: { parse: result.config } }, { policy: { parse: "replace" } });
     }
     return this._next({ policy: { parse: input } }, { policy: { parse: "replace" } });
+  }
+  /** Whether `v` is a plain object literal (not an array, `FormData`, `Blob`, ...). */
+  _isPlainObject(v) {
+    return v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype;
   }
   /** Converts a list of stringable values into strings, dropping `null`/`undefined` entries. */
   _stringifyList(unkList) {
@@ -1718,7 +2020,9 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
     }
     const baseStr = originObj.origin;
     const pathParts = [originObj.pathname.replace(/^\/+|\/+$/g, "")];
-    for (const p of path) pathParts.push(p.replace(/^\/+|\/+$/g, ""));
+    for (const p of path) {
+      for (const part of p.split("/")) pathParts.push(encodeURIComponent(part));
+    }
     const pathStr = pathParts.filter(Boolean).join("/");
     const mainObj = new URL(pathStr, baseStr);
     const parseVal = (val) => val instanceof Date ? val.toISOString() : String(val);
@@ -1739,7 +2043,8 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
     if (body == null) return { headers: {}, body };
     if (typeof body === "string") return { headers: { "Content-Type": "text/plain;charset=UTF-8" }, body };
     if (body instanceof Blob) return { headers: body.type ? { "Content-Type": body.type } : {}, body };
-    if (body instanceof ArrayBuffer) return { headers: { "Content-Type": "application/octet-stream" }, body };
+    if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return { headers: { "Content-Type": "application/octet-stream" }, body };
+    if (typeof ReadableStream !== "undefined" && body instanceof ReadableStream) return { headers: { "Content-Type": "application/octet-stream" }, body };
     if (body instanceof URLSearchParams) return { headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body };
     if (body instanceof FormData) return { headers: {}, body };
     if (typeof body === "object") return { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
@@ -1747,6 +2052,60 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
       method: "_normalizeBody",
       data: { received: body }
     });
+  }
+  /**
+   * Returns the absolute URL a redirect points at, or `null` when the
+   * response isn't a redirect. A response `fetch` already followed
+   * (`redirect: "follow"`, the default) yields its final URL; a readable
+   * `3xx` (`redirect: "manual"` outside browsers) yields its `Location`,
+   * resolved against the responding URL.
+   */
+  _resolveRedirect(response, href) {
+    if (response.redirected && response.url) return response.url;
+    if (response.status < 300 || response.status >= 400) return null;
+    const location = response.headers.get("location");
+    if (!location) return null;
+    try {
+      return new URL(location, response.url || href).href;
+    } catch {
+      return null;
+    }
+  }
+  /** The browser's `location`, or `null` in environments without one (e.g. Node). */
+  _browserLocation() {
+    const win = globalThis.window;
+    return win?.location?.href !== void 0 ? win.location : null;
+  }
+  /** Assigns `source` headers onto `target`, replacing any existing key that differs only in case. */
+  _assignHeaders(target, source) {
+    for (const [key, value] of Object.entries(source)) {
+      const lower = key.toLowerCase();
+      for (const existing of Object.keys(target)) {
+        if (existing.toLowerCase() === lower) delete target[existing];
+      }
+      target[key] = value;
+    }
+  }
+  /**
+   * Converts a rate-limit header value into a delay in milliseconds, or
+   * `null` if it can't be used. Accepts delta seconds (`Retry-After: 120`),
+   * Unix epoch seconds or milliseconds (`X-RateLimit-Reset: 1735689600`),
+   * and HTTP dates.
+   */
+  _parseRetryHeader(value) {
+    if (!value) return null;
+    const num = Number(value);
+    let delay;
+    if (value.trim() !== "" && !isNaN(num)) {
+      if (num >= 1e12) delay = num - Date.now();
+      else if (num >= 1e9) delay = num * 1e3 - Date.now();
+      else delay = num * 1e3;
+    } else {
+      const date = new Date(value).getTime();
+      if (isNaN(date)) return null;
+      delay = date - Date.now();
+    }
+    return delay > 0 ? delay : null;
   }
   /**
    * Overrides the resolved result type with `T`, taking priority over the
@@ -1766,16 +2125,55 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
     if (res.success) return res.data;
     throw res.error;
   }
-  /** Runs the request and returns a result/error envelope instead of throwing. */
+  /**
+   * Runs the request and returns a result/error envelope instead of throwing,
+   * along with the `timeline` of everything the run went through. The
+   * nested retry/parse engines' full timelines are kept inside it, on their
+   * `RETRY_ENDED`/`PARSE_ENDED` entries.
+   */
   async requestVerbose() {
     return await this.requestRuntime();
   }
-  /** Internal execution loop implementing URL building, retry, parsing, and restart handling. */
-  async requestRuntime(restartAttempt = 1) {
+  /**
+   * Internal execution loop implementing URL building, retry, parsing, and
+   * restart handling. Never throws: every failure, including one from
+   * `onError` or `default`, comes back as an envelope carrying the timeline.
+   * A restart passes the same `timeline` on, so it keeps growing across runs.
+   */
+  async requestRuntime(restartAttempt = 1, timeline = []) {
     const config = this._merge(this.config, {});
     let ctx = this._merge(VigorFetchContextBase, {
       policy: config.policy
-    });
+    }, void 0, "replace");
+    ctx.timeline = timeline;
+    const { add, stage } = createVigorTimelineRecorder(timeline, () => this._snapshot(ctx));
+    add("PROCESS_HANDLING", { type: "REQUEST_START", data: { restartAttempt } });
+    const fail = (error) => ({ success: false, data: null, error, timeline });
+    const runRetry = async (engine) => {
+      add("RETRY_STARTED", { engine });
+      const started = performance.now();
+      const res = await engine.requestVerbose();
+      add("RETRY_ENDED", {
+        engine,
+        timeline: res.timeline,
+        took: performance.now() - started,
+        response: res.success ? res.data : VigorDefault
+      });
+      return res;
+    };
+    const runParse = async (source, engine) => {
+      add("PARSE_STARTED", { engine, source });
+      const started = performance.now();
+      const res = await engine.requestVerbose();
+      add("PARSE_ENDED", {
+        engine,
+        source,
+        timeline: res.timeline,
+        took: performance.now() - started,
+        result: res.success ? res.data : VigorDefault
+      });
+      return res;
+    };
     const throwError = (err) => {
       throw err;
     };
@@ -1786,9 +2184,10 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
         context: ctx
       });
       ctx.href = this._buildUrl(ctx.policy.origin, ctx.policy.path, ctx.policy.query, ctx.policy.hash);
-      const hasBody = !isVigorEmpty(ctx.policy.body) && ctx.policy.body !== void 0;
+      add("BUILT_URL", { url: ctx.href });
+      const hasBody = !isVigorEmpty(ctx.policy.body) && ctx.policy.body != null;
       const method = isVigorEmpty(ctx.policy.method) ? hasBody ? "POST" : "GET" : ctx.policy.method;
-      let options = {
+      const options = {
         ...ctx.policy.extra,
         method,
         headers: {}
@@ -1798,37 +2197,60 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
         if (normalized.body !== void 0) options.body = normalized.body;
         Object.assign(options.headers, normalized.headers);
       }
-      Object.assign(options.headers, ctx.policy.headers);
-      for (const middleware of ctx.policy.middlewares.before) {
+      this._assignHeaders(options.headers, ctx.policy.headers);
+      ctx.options = options;
+      await stage("before", ctx.policy.middlewares.before, async (middleware, trace) => {
         if (middleware._mode === "fluent") {
           await middleware.func(ctx);
         } else {
-          ctx = await middleware.func(ctx, {
+          ctx = await middleware.func(ctx, trace({
             throwError,
             setOptions: (o) => {
-              options = o;
+              ctx.options = o;
             },
             setHeaders: (h) => {
-              options.headers = h;
+              ctx.options.headers = h;
             },
             setBody: (b) => {
-              options.body = b;
+              ctx.options.body = b;
             }
-          });
+          })) ?? ctx;
         }
+      });
+      const finalOptions = isVigorDefault(ctx.options) ? options : ctx.options;
+      ctx.options = finalOptions;
+      add("SET_OPTIONS", { options: finalOptions });
+      const finalMethod = (finalOptions.method ?? "GET").toUpperCase();
+      if (finalOptions.body != null && (finalMethod === "GET" || finalMethod === "HEAD")) throw new VigorFetchError("BODY_NOT_ALLOWED", {
+        method: "request",
+        data: { method: finalMethod },
+        context: ctx
+      });
+      const isStreamBody = typeof ReadableStream !== "undefined" && finalOptions.body instanceof ReadableStream;
+      if (isStreamBody) {
+        finalOptions.duplex ??= "half";
       }
-      ctx.options = options;
+      const parseEngine = new VigorParse(ctx.policy.parse);
       const retryEngine = new VigorRetry(ctx.policy.retry).target(async (signal) => {
-        return await fetch(ctx.href, { ...options, signal });
+        return await fetch(ctx.href, { ...finalOptions, signal });
       }).middlewares(
         (m) => m.after("intercept", async (rctx, api) => {
           const response = rctx.result;
-          if (!response.ok) {
-            let parsed = void 0;
-            try {
-              parsed = await new VigorParse(ctx.policy.parse).target(response.clone()).request();
-            } catch {
+          if (ctx.policy.settings.redirect) {
+            const target = this._resolveRedirect(response, ctx.href);
+            const location = this._browserLocation();
+            if (target && location) {
+              location.href = target;
+              api.throwError(new VigorFetchError("REDIRECTED", {
+                method: "request",
+                data: { url: target, status: response.status, response },
+                context: ctx
+              }));
             }
+          }
+          if (!response.ok && response.status !== 304) {
+            const parseRes2 = await runParse("failedResponse", parseEngine.target(response.clone()));
+            const parsed = parseRes2.success ? parseRes2.data : void 0;
             api.throwError(new VigorFetchError("FETCH_FAILED", {
               method: "request",
               data: {
@@ -1837,64 +2259,68 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
                 response,
                 url: response.url,
                 parsed
-              }
+              },
+              context: ctx
             }));
           }
+          if (!ctx.policy.parse.policy.settings.raw) await readVigorParseBody(response);
           return rctx;
         }).retryIf("intercept", async (rctx, api) => {
           const response = rctx.error instanceof VigorFetchError ? rctx.error.data?.response : void 0;
-          if (response && ctx.policy.settings.unretryStatus.includes(response.status)) api.cancelRetry();
-          else api.proceedRetry();
+          if (rctx.error instanceof VigorFetchError && rctx.error.code === "REDIRECTED") api.cancelRetry();
+          else if (isStreamBody) api.cancelRetry();
+          else if (response && (response.type === "opaqueredirect" || response.status >= 300 && response.status < 400)) api.cancelRetry();
+          else if (response && ctx.policy.settings.unretryStatus.includes(response.status)) api.cancelRetry();
           return rctx;
         }).onRetry("intercept", async (rctx, api) => {
           const response = rctx.error instanceof VigorFetchError ? rctx.error.data?.response : void 0;
-          if (response?.status === 429) {
-            let retryHeader = null;
+          if (response?.status === 429 || response?.status === 503) {
             for (const header of ctx.policy.settings.retryHeaders) {
-              retryHeader = response.headers.get(header);
-              if (retryHeader) break;
-            }
-            if (retryHeader) {
-              const toNumber = Number(retryHeader);
-              const delay = !isNaN(toNumber) ? toNumber * 1e3 : (() => {
-                const toDate = new Date(retryHeader).getTime();
-                return !isNaN(toDate) ? toDate - Date.now() : null;
-              })();
-              if (delay !== null && delay > 0) api.setDelay(delay);
+              const delay = this._parseRetryHeader(response.headers.get(header));
+              if (delay !== null) {
+                api.setDelay(Math.min(delay, ctx.policy.settings.maxRetryAfter));
+                break;
+              }
             }
           }
           return rctx;
         })
       );
-      ctx.response = await retryEngine.request();
-      const parseEngine = new VigorParse(ctx.policy.parse).target(ctx.response);
-      ctx.result = await parseEngine.request();
-      for (const middleware of ctx.policy.middlewares.after) {
+      add("ENGINE_CREATED", { retryEngine, parseEngine });
+      const retryRes = await runRetry(retryEngine);
+      if (!retryRes.success) throw retryRes.error;
+      ctx.response = retryRes.data;
+      const parseRes = await runParse("response", parseEngine.target(ctx.response));
+      if (!parseRes.success) throw parseRes.error;
+      ctx.result = parseRes.data;
+      await stage("after", ctx.policy.middlewares.after, async (middleware, trace) => {
         if (middleware._mode === "fluent") {
           await middleware.func(ctx);
         } else {
-          ctx = await middleware.func(ctx, { throwError, setResult: (r) => {
+          ctx = await middleware.func(ctx, trace({ throwError, setResult: (r) => {
             ctx.result = r;
-          } });
+          } })) ?? ctx;
         }
-      }
+      });
       const setResult = (r) => {
         ctx.result = r;
       };
-      for (const middleware of ctx.policy.middlewares.onResult) {
+      await stage("onResult", ctx.policy.middlewares.onResult, async (middleware, trace) => {
         if (middleware._mode === "fluent") {
           ctx.result = await middleware.func(ctx.result);
         } else {
-          ctx = await middleware.func(ctx, { setResult, throwError });
+          ctx = await middleware.func(ctx, trace({ setResult, throwError })) ?? ctx;
         }
-      }
+      });
       return {
         success: true,
         data: ctx.result,
-        error: null
+        error: null,
+        timeline
       };
     } catch (error) {
       ctx.error = error;
+      add("PROCESS_HANDLING", { type: "REQUEST_ERROR", data: { error } });
       ctx.flags.overridden = false;
       ctx.flags.restarted = false;
       const setResult = (r) => {
@@ -1903,15 +2329,19 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
       };
       const proceedRestart = () => ctx.flags.restarted = true;
       const cancelRestart = () => ctx.flags.restarted = false;
-      for (const middleware of ctx.policy.middlewares.onError) {
-        if (middleware._mode === "fluent") {
-          await middleware.func(ctx.error);
-        } else {
-          ctx = await middleware.func(ctx, { setResult, throwError, proceedRestart, cancelRestart });
-        }
+      try {
+        await stage("onError", ctx.policy.middlewares.onError, async (middleware, trace) => {
+          if (middleware._mode === "fluent") {
+            await middleware.func(ctx.error);
+          } else {
+            ctx = await middleware.func(ctx, trace({ setResult, throwError, proceedRestart, cancelRestart })) ?? ctx;
+          }
+        });
+      } catch (err) {
+        return fail(err);
       }
       if (ctx.flags.restarted) {
-        if (restartAttempt + 1 > ctx.policy.settings.maxRestarts) throw new VigorFetchError("RESTART_EXHAUSTED", {
+        if (restartAttempt > ctx.policy.settings.maxRestarts) return fail(new VigorFetchError("RESTART_EXHAUSTED", {
           method: "request",
           cause: ctx.error,
           data: {
@@ -1919,27 +2349,30 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
             error: ctx.error
           },
           context: ctx
-        });
-        return await this.requestRuntime(restartAttempt + 1);
+        }));
+        add("PROCESS_HANDLING", { type: "REQUEST_RESTART", data: { restartAttempt: restartAttempt + 1 } });
+        return await this.requestRuntime(restartAttempt + 1, timeline);
       }
       if (ctx.flags.overridden) return {
         success: true,
         data: ctx.result,
-        error: null
+        error: null,
+        timeline
       };
       if (!isVigorEmpty(ctx.policy.settings.default)) {
-        const data = await ctx.policy.settings.default(ctx);
-        return {
-          success: true,
-          data,
-          error: null
-        };
+        try {
+          const data = await ctx.policy.settings.default(ctx);
+          return {
+            success: true,
+            data,
+            error: null,
+            timeline
+          };
+        } catch (err) {
+          return fail(err);
+        }
       }
-      return {
-        success: false,
-        data: null,
-        error
-      };
+      return fail(error);
     }
   }
 };
@@ -1987,6 +2420,12 @@ var vigorBase = {
       settings: () => new VigorAllPolicySettings(),
       middlewares: () => new VigorAllPolicyMiddlewares()
     }
+  },
+  guards: {
+    retry: isVigorRetryError,
+    parse: isVigorParseError,
+    fetch: isVigorFetchError,
+    all: isVigorAllError
   }
 };
 var cloneVigor = (v) => ({
@@ -1996,15 +2435,21 @@ var cloneVigor = (v) => ({
     retry: { ...v.builders.retry, algorithm: { ...v.builders.retry.algorithm } },
     parse: { ...v.builders.parse },
     all: { ...v.builders.all }
-  }
+  },
+  guards: { ...v.guards }
 });
-var vigor = {
-  ...vigorBase,
-  use: (plugin, options) => {
-    const ext = plugin.func(vigor, options);
-    return { ...cloneVigor(vigor), ...ext };
-  }
+var createVigor = (fields) => {
+  const instance = {
+    ...fields,
+    use: (plugin, options) => {
+      const ext = plugin.func(instance, options);
+      const { use: _, ...rest } = { ...cloneVigor(instance), ...ext };
+      return createVigor(rest);
+    }
+  };
+  return instance;
 };
+var vigor = createVigor(vigorBase);
 
 // src/index.ts
 var index_default = vigor;
@@ -2063,5 +2508,11 @@ var index_default = vigor;
   VigorRetryPolicySettings,
   VigorRetryPolicySettingsBase,
   VigorStatus,
+  createVigorTimelineRecorder,
+  isVigorAllError,
+  isVigorFetchError,
+  isVigorParseError,
+  isVigorRetryError,
+  readVigorParseBody,
   vigor
 });

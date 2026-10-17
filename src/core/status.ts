@@ -46,10 +46,13 @@ export abstract class VigorStatus<
      *  behavior at that path. Paths without a strategy fall back to the
      *  default behavior (deep merge for objects, concat for arrays).
      */
-    protected _next<const Patch extends VigorDeepPartial<Base>>(
+    protected _next<
+        const Patch extends VigorDeepPartial<Base>,
+        const S extends VigorMergeStrategy<Patch> | undefined = undefined
+    >(
         patch: Patch,
-        strategy?: VigorMergeStrategy<Patch>
-    ): VigorApply<TL, VigorDeepMerge<Config, Patch>> {
+        strategy?: S
+    ): VigorApply<TL, VigorDeepMerge<Config, Patch, S>> {
         const merged = this._merge(this._config, patch, strategy)
         return this._create(merged)
     }
@@ -100,6 +103,15 @@ export abstract class VigorStatus<
         }
 
         return merge(source, target, strategy) as VigorDeepMerge<A, B>
+    }
+
+    /**
+     * Snapshots a runtime context for a timeline entry: a `_merge` deep clone
+     * of everything but `timeline`, so later changes to `ctx` don't reach it.
+     */
+    protected _snapshot<C extends { timeline: unknown }>(ctx: C): Omit<C, "timeline"> {
+        const { timeline: _, ...rest } = ctx
+        return this._merge(rest, {}) as Omit<C, "timeline">
     }
 
     /** The default/base config this builder was constructed with. */

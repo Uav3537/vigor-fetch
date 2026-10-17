@@ -1,14 +1,18 @@
-import { VigorAll, VigorAllTask } from "@all/main";
+import { VigorAll, VigorAllResult, VigorAllTask } from "@all/main";
+import type { VigorAllIn } from "@all/TL";
 import { VigorAllPolicySettings } from "@all/settings";
 import { VigorAllPolicyMiddlewares } from "@all/middlewares";
-import { VigorFetch } from "@fetch/main";
+import { VigorFetch, VigorFetchResult } from "@fetch/main";
+import type { VigorFetchIn } from "@fetch/TL";
 import { VigorFetchPolicySettings } from "@fetch/settings";
 import { VigorFetchPolicyMiddlewares } from "@fetch/middlewares";
-import { VigorParse } from "@parse/main";
+import { VigorParse, VigorParseResult } from "@parse/main";
+import type { VigorParseIn } from "@parse/TL";
 import { VigorParsePolicySettings } from "@parse/settings";
 import { VigorParsePolicyMiddlewares } from "@parse/middlewares";
 import { VigorParsePolicyStrategies } from "@parse/strategies";
-import { VigorRetry } from "@retry/main";
+import { VigorRetry, VigorRetryResult } from "@retry/main";
+import type { VigorRetryIn } from "@retry/TL";
 import { VigorRetryPolicySettings } from "@retry/settings";
 import { VigorRetryPolicyMiddlewares } from "@retry/middlewares";
 import {
@@ -18,6 +22,25 @@ import {
     VigorRetryPolicyAlgorithmsBackoff,
     VigorRetryPolicyAlgorithmsCustom,
 } from "@retry/algorithms";
+import { isVigorRetryError } from "@retry/error";
+import { isVigorParseError } from "@parse/error";
+import { isVigorFetchError } from "@fetch/error";
+import { isVigorAllError } from "@all/error";
+
+/**
+ * The result type `request()` infers for a builder — what `ReturnType`
+ * can't give you, since `request<R>()`'s `R` is a free override.
+ *
+ * @example
+ * const users = vigor.fetch(origin).path("users").cast<User[]>()
+ * type Users = VigorResultOf<typeof users> // User[]
+ */
+export type VigorResultOf<B> =
+    B extends VigorRetry<infer T> ? VigorRetryResult<VigorRetryIn<T>>
+    : B extends VigorParse<infer T> ? VigorParseResult<VigorParseIn<T>>
+    : B extends VigorFetch<infer T> ? VigorFetchResult<VigorFetchIn<T>>
+    : B extends VigorAll<infer T> ? VigorAllResult<VigorAllIn<T>>
+    : never
 
 /**
  * Small named helpers that actually *call* the target/origin method with the
@@ -101,15 +124,29 @@ const vigorBase = {
             settings:    () => new VigorAllPolicySettings(),
             middlewares: () => new VigorAllPolicyMiddlewares(),
         },
+    },
+
+    guards: {
+        retry: isVigorRetryError,
+        parse: isVigorParseError,
+        fetch: isVigorFetchError,
+        all:   isVigorAllError,
     }
 }
 
-/** `Ext` accumulates every plugin extension applied so far, so `use().use()` keeps all of them. */
-export type VigorInstance<Ext = {}> = typeof vigorBase & Ext & {
+/** `A` with `B`'s properties replacing same-named ones, like `{ ...A, ...B }`. */
+type VigorOverride<A, B> = Omit<A, keyof B> & B
+
+/**
+ * `Ext` accumulates every plugin extension applied so far, so `use().use()`
+ * keeps all of them. A later extension replaces an earlier property of the
+ * same name (including a built-in one), exactly as `use()` does at runtime.
+ */
+export type VigorInstance<Ext = {}> = VigorOverride<typeof vigorBase, Ext> & {
     use: <P extends VigorPlugin<any, any>>(
         plugin: P,
-        options?: P["options"]
-    ) => VigorInstance<Ext & ReturnType<P["func"]>>
+        options?: Partial<P["options"]>
+    ) => VigorInstance<VigorOverride<Ext, ReturnType<P["func"]>>>
 }
 
 /**
@@ -117,6 +154,9 @@ export type VigorInstance<Ext = {}> = typeof vigorBase & Ext & {
  * (e.g. to wrap an existing method) and returns `Ext`, the properties to
  * merge into a *new* instance. `use()` owns cloning/merging, so plugins stay
  * pure and `vigor` itself is never touched.
+ *
+ * `options` holds the defaults: `func` receives them with whatever was
+ * passed to `use()` shallow-merged on top, so it always gets a full `O`.
  */
 export type VigorPlugin<
     O extends { [str: string]: any } = {},
@@ -126,7 +166,7 @@ export type VigorPlugin<
     func: (v: VigorInstance, options: O) => Ext
 }
 
-/** Shallow-clones a Vigor instance, including its nested `builders` groups, so callers never get a reference back into the original. */
+/** Shallow-clones a Vigor instance, including its nested `builders`/`guards` groups, so callers never get a reference back into the original. */
 /** Runtime shape of an instance without its `use` (plus whatever plugins added). */
 type VigorInstanceFields = typeof vigorBase & Record<string, unknown>
 
@@ -137,7 +177,8 @@ const cloneVigor = (v: VigorInstanceFields): VigorInstanceFields => ({
         retry: { ...v.builders.retry, algorithm: { ...v.builders.retry.algorithm } },
         parse: { ...v.builders.parse },
         all: { ...v.builders.all },
-    }
+    },
+    guards: { ...v.guards }
 })
 
 /**
@@ -148,7 +189,7 @@ const createVigor = (fields: VigorInstanceFields): VigorInstance => {
     const instance = {
         ...fields,
         use: (plugin: VigorPlugin<any, any>, options?: unknown) => {
-            const ext = plugin.func(instance, options)
+            const ext = plugin.func(instance, { ...plugin.options, ...(options as object | undefined) })
             const { use: _, ...rest } = { ...cloneVigor(instance), ...ext }
             return createVigor(rest as VigorInstanceFields)
         },
