@@ -90,9 +90,9 @@ export abstract class VigorError<C extends string, D, T = unknown> extends Error
  * `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`), then its `cause`. Each wrapped
  * error is searched fully before moving on. Cycles are skipped.
  *
- * This is what the `find` of each `vigor.guards.*` uses, so a caller can ask
- * for the error that actually happened (e.g. `FETCH_FAILED`) without
- * unwrapping the retry layers by hand.
+ * This is what the callback form of the `isVigor*Error` guards uses, so a
+ * caller can ask for the error that actually happened (e.g. `FETCH_FAILED`)
+ * without unwrapping the retry layers by hand.
  */
 export function findInVigorErrorChain(error: unknown, match: (error: unknown) => boolean): unknown {
     const seen = new Set<unknown>()
@@ -110,4 +110,25 @@ export function findInVigorErrorChain(error: unknown, match: (error: unknown) =>
         return visit((current as { cause?: unknown }).cause)
     }
     return visit(error)
+}
+
+/**
+ * Shared body of the `isVigor*Error` guards. `is` checks one error against a
+ * code list (empty means any code of that module).
+ *
+ * - `(error, ...codes)`: checks `error` itself and returns a boolean.
+ * - `(error, codes, callback)`: searches `error`'s chain (see
+ *   {@link findInVigorErrorChain}) and calls `callback` with the first match.
+ *   Returns what `callback` returns, or `undefined` when nothing matches.
+ */
+export function runVigorGuard(
+    error: unknown,
+    args: readonly unknown[],
+    is: (error: unknown, codes: readonly unknown[]) => boolean,
+): unknown {
+    const callback = args[args.length - 1]
+    if (typeof callback !== "function") return is(error, args)
+    const codes: readonly unknown[] = Array.isArray(args[0]) ? args[0] : [args[0]]
+    const found = findInVigorErrorChain(error, e => is(e, codes))
+    return found === undefined ? undefined : callback(found)
 }

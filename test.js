@@ -111,7 +111,7 @@ await test("Fetch requestVerbose() carries the response's status, null when ther
     }
 });
 
-await test("guards.*.find reaches the error wrapped by RETRY_EXHAUSTED", async () => {
+await test("A guard's callback reaches the error wrapped by RETRY_EXHAUSTED", async () => {
     const server = http.createServer((req, res) => {
         res.statusCode = 503;
         res.setHeader("content-type", "application/json");
@@ -124,20 +124,27 @@ await test("guards.*.find reaches the error wrapped by RETRY_EXHAUSTED", async (
             .retry((r) => r.settings({ maxAttempts: 2 }).algorithms((a) => a.constant({ interval: 0, jitter: 0 })))
             .requestVerbose();
         assert.equal(res.success, false, "a 503 did not fail");
-        assert.ok(vigor.guards.fetch(res.error, "RETRY_EXHAUSTED"), "the outer error is not RETRY_EXHAUSTED");
-        assert.ok(!vigor.guards.fetch(res.error, "FETCH_FAILED"), "the guard matched a wrapped error");
 
-        const failed = vigor.guards.fetch.find(res.error, "FETCH_FAILED");
-        assert.ok(failed instanceof VigorFetchError, "find did not return the wrapped error");
-        assert.equal(failed.data.status, 503, "the found error is not the response's");
-        assert.deepEqual(failed.data.parsed, { reason: "down" }, "the found error lost its parsed body");
-        assert.equal(esm.findVigorFetchError(res.error, "FETCH_FAILED"), failed, "the export and guards.fetch.find differ");
+        // Without a callback the guard only checks the error itself.
+        assert.equal(vigor.guards.fetch(res.error, "RETRY_EXHAUSTED"), true, "the outer error is not RETRY_EXHAUSTED");
+        assert.equal(vigor.guards.fetch(res.error, "FETCH_FAILED"), false, "the plain guard matched a wrapped error");
 
-        assert.equal(vigor.guards.fetch.find(res.error, "RETRY_EXHAUSTED"), res.error, "find does not return the error itself first");
-        assert.equal(vigor.guards.fetch.find(res.error, "REDIRECTED"), null, "find returned a missing code");
-        assert.equal(vigor.guards.fetch.find(new Error("plain"), "FETCH_FAILED"), null, "find matched a plain error");
-        assert.equal(vigor.guards.fetch.find(null, "FETCH_FAILED"), null, "find did not handle null");
-        assert.equal(typeof esm.isVigorFetchError.find, "undefined", "the exported guard got a find property");
+        // With one, it searches inside and hands over the match.
+        let seen;
+        const status = vigor.guards.fetch(res.error, "FETCH_FAILED", (failed) => { seen = failed; return failed.data.status; });
+        assert.ok(seen instanceof VigorFetchError && seen.code === "FETCH_FAILED", "the callback did not get the wrapped error");
+        assert.equal(status, 503, "the guard did not return the callback's result");
+        assert.deepEqual(seen.data.parsed, { reason: "down" }, "the found error lost its parsed body");
+        assert.equal(seen, res.error.data.error, "the callback did not get the wrapped error itself");
+
+        assert.equal(vigor.guards.fetch(res.error, "RETRY_EXHAUSTED", (e) => e), res.error, "the error itself is not checked first");
+        assert.equal(vigor.guards.fetch(res.error, ["REDIRECTED", "FETCH_FAILED"], (e) => e.code), "FETCH_FAILED", "an array of codes did not match");
+        let called = false;
+        assert.equal(vigor.guards.fetch(res.error, "REDIRECTED", () => { called = true; }), undefined, "a missing code did not give undefined");
+        assert.equal(vigor.guards.fetch(new Error("plain"), "FETCH_FAILED", () => { called = true; }), undefined, "a plain error matched");
+        assert.equal(vigor.guards.fetch(null, "FETCH_FAILED", () => { called = true; }), undefined, "null matched");
+        assert.equal(called, false, "the callback ran without a match");
+        assert.equal(vigor.guards.fetch, esm.isVigorFetchError, "guards.fetch is not the exported guard");
     } finally {
         server.close();
     }

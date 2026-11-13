@@ -1,4 +1,4 @@
-import { VigorError, VigorErrorContext, VigorErrorOptions, VigorResultError, findInVigorErrorChain } from "@core/error";
+import { VigorError, VigorErrorContext, VigorErrorOptions, VigorResultError, runVigorGuard } from "@core/error";
 import { VigorRetrySchema } from "./main";
 import type { VigorRetryContextSchema } from "./context";
 
@@ -92,27 +92,24 @@ export type VigorRetryErrorsIn<E, C extends VigorRetryErrorCodes = VigorRetryErr
  * if (isVigorRetryError(error, "TIMED_OUT")) {
  *     error.data // that code's payload
  * }
- */
-export function isVigorRetryError<E>(error: E): error is E & VigorRetryErrorsIn<E>
-export function isVigorRetryError<E, const C extends VigorRetryErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorRetryErrorsIn<E, C>
-export function isVigorRetryError(error: unknown, ...codes: VigorRetryErrorCodes[]): boolean {
-    return error instanceof VigorRetryError && (codes.length === 0 || codes.includes(error.code))
-}
-
-/**
- * Like `isVigorRetryError(error, ...codes)`, but also looks inside the errors
- * `error` wraps — `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
- * then `cause` — and returns the first match, outermost first. Returns
- * `null` when there is none. `error` itself is left as it is.
  *
- * A guard can't do this: it narrows the value you pass, so a `true` for a
- * wrapped match would claim the wrapper has the inner error's `data`.
+ * Pass a `callback` as the third argument (with the code, or an array of
+ * codes, as the second) to also look inside the errors `error` wraps: the
+ * error itself, then `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
+ * then `cause`. `callback` gets the first match, outermost first, typed for
+ * its code; the guard returns what `callback` returns, or `undefined` when
+ * nothing matches. (A plain guard can't do this: it narrows `error` itself,
+ * which is still the wrapper.)
  *
  * @example
- * const timedOut = findVigorRetryError(error, "TIMED_OUT")
- * if (timedOut) timedOut.data.limit
+ * isVigorRetryError(error, "TIMED_OUT", error => {
+ *     error.data.limit // found even when wrapped in RETRY_EXHAUSTED
+ * })
  */
-export function findVigorRetryError<E, const C extends VigorRetryErrorCodes>(error: E, ...codes: [C, ...C[]]): VigorRetryErrorsIn<E, C> | null {
-    const found = findInVigorErrorChain(error, e => isVigorRetryError(e, ...codes))
-    return found === undefined ? null : found as VigorRetryErrorsIn<E, C>
+export function isVigorRetryError<E, const C extends VigorRetryErrorCodes, R>(error: E, codes: C | readonly [C, ...C[]], callback: (error: VigorRetryErrorsIn<E, C>) => R): R | undefined
+export function isVigorRetryError<E>(error: E): error is E & VigorRetryErrorsIn<E>
+export function isVigorRetryError<E, const C extends VigorRetryErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorRetryErrorsIn<E, C>
+export function isVigorRetryError(error: unknown, ...args: unknown[]): any {
+    return runVigorGuard(error, args, (e, codes) => e instanceof VigorRetryError && (codes.length === 0 || codes.includes(e.code)))
 }
+

@@ -145,14 +145,16 @@ vigor.guards.fetch(err)   // isVigorFetchError
 vigor.guards.all(err)     // isVigorAllError
 ```
 
-Each guard also has a `find` that looks inside wrapped errors. A request that runs out of attempts fails with `RETRY_EXHAUSTED`, and the error that actually happened (a `FETCH_FAILED`, a `TIMED_OUT`, ...) sits in its `data.error`. `find` walks the error itself, then `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`, then `cause`, and returns the first error with one of the given codes, or `null`:
+A request that runs out of attempts fails with `RETRY_EXHAUSTED`, and the error that actually happened (a `FETCH_FAILED`, a `TIMED_OUT`, ...) sits in its `data.error`. To reach it, pass a callback as the third argument, with the code (or an array of codes) as the second. The guard then looks at the error itself, then `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`, then `cause`, and calls the callback with the first match, typed for its code. It returns what the callback returns, or `undefined` when nothing matches:
 
 ```ts
-const failed = vigor.guards.fetch.find(err, "FETCH_FAILED")   // same as findVigorFetchError(err, "FETCH_FAILED")
-if (failed) failed.data.status
+vigor.guards.fetch(err, "FETCH_FAILED", failed => {
+    failed.data.status   // found even when wrapped in RETRY_EXHAUSTED
+})
+const status = vigor.guards.fetch(err, ["FETCH_FAILED", "TIMED_OUT"], e => e.code)  // "FETCH_FAILED" | "TIMED_OUT" | undefined
 ```
 
-The guard itself only checks the error you pass: a guard narrows its argument, so it can't say `true` for an error found one level down. Use `find` when you want the underlying error wherever it is, and the guard when the outer code matters (e.g. "did we give up retrying?").
+Without a callback the guard only checks the error you pass, as before: it narrows its argument, and that argument is still the wrapper. So `vigor.guards.fetch(err, "FETCH_FAILED")` is `false` for a `RETRY_EXHAUSTED`, and `vigor.guards.fetch(err, "RETRY_EXHAUSTED")` is how you ask "did we give up retrying?".
 
 ---
 
@@ -829,7 +831,7 @@ try {
 
 `VigorRetryErrors` & co. are unions with **one member per error code**, so narrowing by `code` also narrows `data` to that code's payload. The `{} | null | undefined` tail is everything Vigor didn't create — an error your own target or middleware threw, an abort reason, a network `TypeError`, or even a bare `throw null`. It's there because those really do reach you: a `cancelRetry()`/`breakRetry()`/abort path returns your error as-is, rather than wrapping it.
 
-Narrow with the exported guards — `isVigorRetryError`, `isVigorParseError`, `isVigorFetchError`, `isVigorAllError` (or `vigor.guards.*`). To reach an error wrapped by `RETRY_EXHAUSTED`, use `findVigor*Error` (or `vigor.guards.*.find`, see [`vigor.guards`](#vigorguards)):
+Narrow with the exported guards — `isVigorRetryError`, `isVigorParseError`, `isVigorFetchError`, `isVigorAllError` (or `vigor.guards.*`). To reach an error wrapped by `RETRY_EXHAUSTED`, pass a callback (see [`vigor.guards`](#vigorguards)):
 
 ```ts
 const res = await vigor.retry(task).requestVerbose();
@@ -914,10 +916,11 @@ With an [API map](#route-descriptions) route that declares failure `responses`, 
 ```ts
 const res = await api.route("POST /users").body("overwrite", { name: "a" }).requestVerbose()
 if (!res.success) {
-  const err = findVigorFetchError(res.error, "FETCH_FAILED")  // unwraps RETRY_EXHAUSTED if needed
-  if (err && err.data.status === 422) {
-    err.data.parsed  // { fields: Record<string, string> } | undefined
-  }
+  isVigorFetchError(res.error, "FETCH_FAILED", err => {  // unwraps RETRY_EXHAUSTED if needed
+    if (err.data.status === 422) {
+      err.data.parsed  // { fields: Record<string, string> } | undefined
+    }
+  })
 }
 ```
 

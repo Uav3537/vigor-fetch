@@ -1,4 +1,4 @@
-import { VigorError, VigorErrorContext, VigorErrorOptions, VigorResultError, findInVigorErrorChain } from "@core/error";
+import { VigorError, VigorErrorContext, VigorErrorOptions, VigorResultError, runVigorGuard } from "@core/error";
 import { VigorRetryError, VigorRetryErrorMessageFuncs } from "@retry/error";
 import { VigorParseError, VigorParseErrorMessageFuncs } from "@parse/error";
 import { VigorFetchSchema } from "./main";
@@ -143,30 +143,27 @@ export type VigorFetchErrorsIn<E, C extends VigorFetchErrorCodes = VigorFetchErr
  * if (isVigorFetchError(error, "FETCH_FAILED")) {
  *     error.data // that code's payload
  * }
- */
-export function isVigorFetchError<E>(error: E): error is E & VigorFetchErrorsIn<E>
-export function isVigorFetchError<E, const C extends VigorFetchErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorFetchErrorsIn<E, C>
-export function isVigorFetchError(error: unknown, ...codes: VigorFetchErrorCodes[]): boolean {
-    return error instanceof VigorFetchError && (codes.length === 0 || codes.includes(error.code))
-}
-
-/**
- * Like `isVigorFetchError(error, ...codes)`, but also looks inside the errors
- * `error` wraps — `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
- * then `cause` — and returns the first match, outermost first. Returns
- * `null` when there is none. `error` itself is left as it is.
  *
- * A guard can't do this: it narrows the value you pass, so a `true` for a
- * wrapped match would claim the wrapper has the inner error's `data`.
+ * Pass a `callback` as the third argument (with the code, or an array of
+ * codes, as the second) to also look inside the errors `error` wraps: the
+ * error itself, then `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
+ * then `cause`. `callback` gets the first match, outermost first, typed for
+ * its code; the guard returns what `callback` returns, or `undefined` when
+ * nothing matches. (A plain guard can't do this: it narrows `error` itself,
+ * which is still the wrapper.)
  *
  * @example
- * const failed = findVigorFetchError(error, "FETCH_FAILED")
- * if (failed) failed.data.status
+ * isVigorFetchError(error, "FETCH_FAILED", error => {
+ *     error.data.status // found even when wrapped in RETRY_EXHAUSTED
+ * })
  */
-export function findVigorFetchError<E, const C extends VigorFetchErrorCodes>(error: E, ...codes: [C, ...C[]]): VigorFetchErrorsIn<E, C> | null {
-    const found = findInVigorErrorChain(error, e => isVigorFetchError(e, ...codes))
-    return found === undefined ? null : found as VigorFetchErrorsIn<E, C>
+export function isVigorFetchError<E, const C extends VigorFetchErrorCodes, R>(error: E, codes: C | readonly [C, ...C[]], callback: (error: VigorFetchErrorsIn<E, C>) => R): R | undefined
+export function isVigorFetchError<E>(error: E): error is E & VigorFetchErrorsIn<E>
+export function isVigorFetchError<E, const C extends VigorFetchErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorFetchErrorsIn<E, C>
+export function isVigorFetchError(error: unknown, ...args: unknown[]): any {
+    return runVigorGuard(error, args, (e, codes) => e instanceof VigorFetchError && (codes.length === 0 || codes.includes(e.code)))
 }
+
 
 /**
  * Re-raises an error of the nested retry/parse engine as a `VigorFetchError`

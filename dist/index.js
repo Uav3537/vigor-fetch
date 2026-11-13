@@ -238,6 +238,13 @@ function findInVigorErrorChain(error, match) {
   };
   return visit(error);
 }
+function runVigorGuard(error, args, is) {
+  const callback = args[args.length - 1];
+  if (typeof callback !== "function") return is(error, args);
+  const codes = Array.isArray(args[0]) ? args[0] : [args[0]];
+  const found = findInVigorErrorChain(error, (e) => is(e, codes));
+  return found === void 0 ? void 0 : callback(found);
+}
 
 // src/all/error.ts
 var VigorAllErrorMessageFuncs = {
@@ -254,12 +261,8 @@ var VigorAllError = class extends VigorError {
     super(code, messageFn(options.data), options);
   }
 };
-function isVigorAllError(error, ...codes) {
-  return error instanceof VigorAllError && (codes.length === 0 || codes.includes(error.code));
-}
-function findVigorAllError(error, ...codes) {
-  const found = findInVigorErrorChain(error, (e) => isVigorAllError(e, ...codes));
-  return found === void 0 ? null : found;
+function isVigorAllError(error, ...args) {
+  return runVigorGuard(error, args, (e, codes) => e instanceof VigorAllError && (codes.length === 0 || codes.includes(e.code)));
 }
 
 // src/core/timeline.ts
@@ -775,12 +778,8 @@ var VigorRetryError = class extends VigorError {
     super(code, messageFn(options.data), options);
   }
 };
-function isVigorRetryError(error, ...codes) {
-  return error instanceof VigorRetryError && (codes.length === 0 || codes.includes(error.code));
-}
-function findVigorRetryError(error, ...codes) {
-  const found = findInVigorErrorChain(error, (e) => isVigorRetryError(e, ...codes));
-  return found === void 0 ? null : found;
+function isVigorRetryError(error, ...args) {
+  return runVigorGuard(error, args, (e, codes) => e instanceof VigorRetryError && (codes.length === 0 || codes.includes(e.code)));
 }
 
 // src/retry/algorithms.ts
@@ -1483,12 +1482,8 @@ var VigorParseError = class extends VigorError {
     super(code, messageFn(options.data), options);
   }
 };
-function isVigorParseError(error, ...codes) {
-  return error instanceof VigorParseError && (codes.length === 0 || codes.includes(error.code));
-}
-function findVigorParseError(error, ...codes) {
-  const found = findInVigorErrorChain(error, (e) => isVigorParseError(e, ...codes));
-  return found === void 0 ? null : found;
+function isVigorParseError(error, ...args) {
+  return runVigorGuard(error, args, (e, codes) => e instanceof VigorParseError && (codes.length === 0 || codes.includes(e.code)));
 }
 
 // src/parse/strategies.ts
@@ -1979,12 +1974,8 @@ var VigorFetchError = class extends VigorError {
     super(code, messageFn(options.data), options);
   }
 };
-function isVigorFetchError(error, ...codes) {
-  return error instanceof VigorFetchError && (codes.length === 0 || codes.includes(error.code));
-}
-function findVigorFetchError(error, ...codes) {
-  const found = findInVigorErrorChain(error, (e) => isVigorFetchError(e, ...codes));
-  return found === void 0 ? null : found;
+function isVigorFetchError(error, ...args) {
+  return runVigorGuard(error, args, (e, codes) => e instanceof VigorFetchError && (codes.length === 0 || codes.includes(e.code)));
 }
 function adoptVigorFetchError(error, context) {
   if (!(error instanceof VigorRetryError) && !(error instanceof VigorParseError)) return error;
@@ -2557,7 +2548,6 @@ var VigorFetch = class _VigorFetch extends VigorStatus {
 };
 
 // src/entry/main.ts
-var guardWithFind = (guard, find) => Object.assign(((...args) => guard(...args)), { find });
 function retryWithTarget(task) {
   return new VigorRetry().target(task);
 }
@@ -2602,10 +2592,10 @@ var vigorBase = {
     }
   },
   guards: {
-    retry: guardWithFind(isVigorRetryError, findVigorRetryError),
-    parse: guardWithFind(isVigorParseError, findVigorParseError),
-    fetch: guardWithFind(isVigorFetchError, findVigorFetchError),
-    all: guardWithFind(isVigorAllError, findVigorAllError)
+    retry: isVigorRetryError,
+    parse: isVigorParseError,
+    fetch: isVigorFetchError,
+    all: isVigorAllError
   }
 };
 var cloneVigor = (v) => ({
@@ -2700,10 +2690,6 @@ export {
   createVigorTimelineRecorder,
   index_default as default,
   findInVigorErrorChain,
-  findVigorAllError,
-  findVigorFetchError,
-  findVigorParseError,
-  findVigorRetryError,
   isVigorAllError,
   isVigorDefault,
   isVigorEmpty,
@@ -2713,5 +2699,6 @@ export {
   isVigorRetryError,
   markVigorInternal,
   readVigorParseBody,
+  runVigorGuard,
   vigor
 };

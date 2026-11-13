@@ -1,4 +1,4 @@
-import { VigorError, VigorErrorContext, VigorErrorOptions, VigorResultError, findInVigorErrorChain } from "@core/error";
+import { VigorError, VigorErrorContext, VigorErrorOptions, VigorResultError, runVigorGuard } from "@core/error";
 import { VigorParseSchema } from "./main";
 import type { VigorParseContextSchema } from "./context";
 
@@ -107,27 +107,24 @@ export type VigorParseErrorsIn<E, C extends VigorParseErrorCodes = VigorParseErr
  * if (isVigorParseError(error, "PARSER_NOT_FOUND")) {
  *     error.data // that code's payload
  * }
- */
-export function isVigorParseError<E>(error: E): error is E & VigorParseErrorsIn<E>
-export function isVigorParseError<E, const C extends VigorParseErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorParseErrorsIn<E, C>
-export function isVigorParseError(error: unknown, ...codes: VigorParseErrorCodes[]): boolean {
-    return error instanceof VigorParseError && (codes.length === 0 || codes.includes(error.code))
-}
-
-/**
- * Like `isVigorParseError(error, ...codes)`, but also looks inside the errors
- * `error` wraps — `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
- * then `cause` — and returns the first match, outermost first. Returns
- * `null` when there is none. `error` itself is left as it is.
  *
- * A guard can't do this: it narrows the value you pass, so a `true` for a
- * wrapped match would claim the wrapper has the inner error's `data`.
+ * Pass a `callback` as the third argument (with the code, or an array of
+ * codes, as the second) to also look inside the errors `error` wraps: the
+ * error itself, then `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
+ * then `cause`. `callback` gets the first match, outermost first, typed for
+ * its code; the guard returns what `callback` returns, or `undefined` when
+ * nothing matches. (A plain guard can't do this: it narrows `error` itself,
+ * which is still the wrapper.)
  *
  * @example
- * const notFound = findVigorParseError(error, "PARSER_NOT_FOUND")
- * if (notFound) notFound.data.expected
+ * isVigorParseError(error, "PARSER_NOT_FOUND", error => {
+ *     error.data.expected // found even when wrapped in RETRY_EXHAUSTED
+ * })
  */
-export function findVigorParseError<E, const C extends VigorParseErrorCodes>(error: E, ...codes: [C, ...C[]]): VigorParseErrorsIn<E, C> | null {
-    const found = findInVigorErrorChain(error, e => isVigorParseError(e, ...codes))
-    return found === undefined ? null : found as VigorParseErrorsIn<E, C>
+export function isVigorParseError<E, const C extends VigorParseErrorCodes, R>(error: E, codes: C | readonly [C, ...C[]], callback: (error: VigorParseErrorsIn<E, C>) => R): R | undefined
+export function isVigorParseError<E>(error: E): error is E & VigorParseErrorsIn<E>
+export function isVigorParseError<E, const C extends VigorParseErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorParseErrorsIn<E, C>
+export function isVigorParseError(error: unknown, ...args: unknown[]): any {
+    return runVigorGuard(error, args, (e, codes) => e instanceof VigorParseError && (codes.length === 0 || codes.includes(e.code)))
 }
+

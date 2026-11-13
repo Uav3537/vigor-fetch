@@ -17,9 +17,7 @@ import vigor, {
     isVigorFetchError,
     isVigorParseError,
     isVigorAllError,
-    findVigorFetchError,
     VigorFetchErrors,
-    findVigorRetryError,
     VigorFetchError,
     VigorParseError,
     VigorAllError,
@@ -671,46 +669,44 @@ export type Dx8 = Expect<Equal<VigorResultOf<string>, never>>
 
 
 // ============================================================================
-// find: `findVigor*Error(error, ...codes)` / `vigor.guards.*.find`
+// guards with a callback: `isVigor*Error(error, codes, callback)`
 // ============================================================================
 
-export async function findErrors(thrown: unknown) {
-    // On `unknown`: the generic member for that code, or null.
-    const failed = findVigorFetchError(thrown, "FETCH_FAILED")
-    const t1: Expect<Equal<typeof failed, Extract<VigorFetchErrors<any>, { code: "FETCH_FAILED" }> | null>> = true
-    if (failed) {
-        const status: number = failed.data.status
+export async function guardCallbacks(thrown: unknown) {
+    // On `unknown`: the callback gets the generic member for that code.
+    const status = isVigorFetchError(thrown, "FETCH_FAILED", failed => {
+        const t: Expect<Equal<typeof failed, Extract<VigorFetchErrors<any>, { code: "FETCH_FAILED" }>>> = true
         const href: string = failed.context.href
-    }
+        return failed.data.status
+    })
+    const t1: Expect<Equal<typeof status, number | undefined>> = true
 
-    // Several codes stay correlated with `data`.
-    const either = findVigorFetchError(thrown, "FETCH_FAILED", "TIMED_OUT")
-    if (either?.code === "TIMED_OUT") {
-        const limit: number = either.data.limit
-    }
+    // An array of codes: their union, still correlated with `data`.
+    isVigorFetchError(thrown, ["FETCH_FAILED", "TIMED_OUT"], e => {
+        const codes: Expect<Equal<typeof e.code, "FETCH_FAILED" | "TIMED_OUT">> = true
+        if (e.code === "TIMED_OUT") {
+            const limit: number = e.data.limit
+        }
+    })
 
-    // The same function on `vigor.guards`, and the guard itself still narrows.
-    const viaGuards = vigor.guards.fetch.find(thrown, "FETCH_FAILED")
-    const t2: Expect<Equal<typeof viaGuards, typeof failed>> = true
+    // The same on `vigor.guards`, and without a callback it still narrows.
+    const limit = vigor.guards.retry(thrown, "TIMED_OUT", e => e.data.limit)
+    const t2: Expect<Equal<typeof limit, number | undefined>> = true
     if (vigor.guards.fetch(thrown, "REDIRECTED")) {
         const url: string = thrown.data.url
     }
-    const timedOut = vigor.guards.retry.find(thrown, "TIMED_OUT")
-    if (timedOut) {
-        const limit: number = timedOut.data.limit
-    }
-    const sameAsExport: Expect<Equal<typeof timedOut, ReturnType<typeof findVigorRetryError<unknown, "TIMED_OUT">>>> = true
 
-    // At least one code is required.
-    // @ts-expect-error  find needs a code
-    findVigorFetchError(thrown)
+    // A code that isn't the module's is rejected.
+    // @ts-expect-error  not a fetch error code
+    isVigorFetchError(thrown, "EMPTY_TARGET", () => {})
 
     // On a `requestVerbose()` error, the request's own types are kept.
     const f = await vigor.fetch("https://x").requestVerbose()
     if (f.success) return
-    const inner = findVigorFetchError(f.error, "FETCH_FAILED")
-    if (inner && isVigorFetchError(f.error, "FETCH_FAILED")) {
-        // the same member the guard narrows to, typed context included
-        const same: Expect<Equal<typeof inner, typeof f.error>> = true
-    }
+    isVigorFetchError(f.error, "FETCH_FAILED", inner => {
+        if (isVigorFetchError(f.error, "FETCH_FAILED")) {
+            // the same member the plain guard narrows to, typed context included
+            const same: Expect<Equal<typeof inner, Extract<typeof f.error, { code: "FETCH_FAILED" }>>> = true
+        }
+    })
 }

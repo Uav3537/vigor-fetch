@@ -764,11 +764,21 @@ declare abstract class VigorError<C extends string, D, T = unknown> extends Erro
  * `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`), then its `cause`. Each wrapped
  * error is searched fully before moving on. Cycles are skipped.
  *
- * This is what the `find` of each `vigor.guards.*` uses, so a caller can ask
- * for the error that actually happened (e.g. `FETCH_FAILED`) without
- * unwrapping the retry layers by hand.
+ * This is what the callback form of the `isVigor*Error` guards uses, so a
+ * caller can ask for the error that actually happened (e.g. `FETCH_FAILED`)
+ * without unwrapping the retry layers by hand.
  */
 declare function findInVigorErrorChain(error: unknown, match: (error: unknown) => boolean): unknown;
+/**
+ * Shared body of the `isVigor*Error` guards. `is` checks one error against a
+ * code list (empty means any code of that module).
+ *
+ * - `(error, ...codes)`: checks `error` itself and returns a boolean.
+ * - `(error, codes, callback)`: searches `error`'s chain (see
+ *   {@link findInVigorErrorChain}) and calls `callback` with the first match.
+ *   Returns what `callback` returns, or `undefined` when nothing matches.
+ */
+declare function runVigorGuard(error: unknown, args: readonly unknown[], is: (error: unknown, codes: readonly unknown[]) => boolean): unknown;
 
 declare const VigorParseErrorMessageFuncs: {
     readonly VALUE_REQUIRED: ({ key }: {
@@ -851,23 +861,23 @@ type VigorParseErrorsIn<E, C extends VigorParseErrorCodes = VigorParseErrorCodes
  * if (isVigorParseError(error, "PARSER_NOT_FOUND")) {
  *     error.data // that code's payload
  * }
- */
-declare function isVigorParseError<E>(error: E): error is E & VigorParseErrorsIn<E>;
-declare function isVigorParseError<E, const C extends VigorParseErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorParseErrorsIn<E, C>;
-/**
- * Like `isVigorParseError(error, ...codes)`, but also looks inside the errors
- * `error` wraps — `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
- * then `cause` — and returns the first match, outermost first. Returns
- * `null` when there is none. `error` itself is left as it is.
  *
- * A guard can't do this: it narrows the value you pass, so a `true` for a
- * wrapped match would claim the wrapper has the inner error's `data`.
+ * Pass a `callback` as the third argument (with the code, or an array of
+ * codes, as the second) to also look inside the errors `error` wraps: the
+ * error itself, then `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
+ * then `cause`. `callback` gets the first match, outermost first, typed for
+ * its code; the guard returns what `callback` returns, or `undefined` when
+ * nothing matches. (A plain guard can't do this: it narrows `error` itself,
+ * which is still the wrapper.)
  *
  * @example
- * const notFound = findVigorParseError(error, "PARSER_NOT_FOUND")
- * if (notFound) notFound.data.expected
+ * isVigorParseError(error, "PARSER_NOT_FOUND", error => {
+ *     error.data.expected // found even when wrapped in RETRY_EXHAUSTED
+ * })
  */
-declare function findVigorParseError<E, const C extends VigorParseErrorCodes>(error: E, ...codes: [C, ...C[]]): VigorParseErrorsIn<E, C> | null;
+declare function isVigorParseError<E, const C extends VigorParseErrorCodes, R>(error: E, codes: C | readonly [C, ...C[]], callback: (error: VigorParseErrorsIn<E, C>) => R): R | undefined;
+declare function isVigorParseError<E>(error: E): error is E & VigorParseErrorsIn<E>;
+declare function isVigorParseError<E, const C extends VigorParseErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorParseErrorsIn<E, C>;
 
 type VigorParsePolicySchema<T extends VigorParseSchema<T>> = {
     __brand: VigorBrand<"Parse", "Policy<Schema">;
@@ -1736,23 +1746,23 @@ type VigorRetryErrorsIn<E, C extends VigorRetryErrorCodes = VigorRetryErrorCodes
  * if (isVigorRetryError(error, "TIMED_OUT")) {
  *     error.data // that code's payload
  * }
- */
-declare function isVigorRetryError<E>(error: E): error is E & VigorRetryErrorsIn<E>;
-declare function isVigorRetryError<E, const C extends VigorRetryErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorRetryErrorsIn<E, C>;
-/**
- * Like `isVigorRetryError(error, ...codes)`, but also looks inside the errors
- * `error` wraps — `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
- * then `cause` — and returns the first match, outermost first. Returns
- * `null` when there is none. `error` itself is left as it is.
  *
- * A guard can't do this: it narrows the value you pass, so a `true` for a
- * wrapped match would claim the wrapper has the inner error's `data`.
+ * Pass a `callback` as the third argument (with the code, or an array of
+ * codes, as the second) to also look inside the errors `error` wraps: the
+ * error itself, then `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
+ * then `cause`. `callback` gets the first match, outermost first, typed for
+ * its code; the guard returns what `callback` returns, or `undefined` when
+ * nothing matches. (A plain guard can't do this: it narrows `error` itself,
+ * which is still the wrapper.)
  *
  * @example
- * const timedOut = findVigorRetryError(error, "TIMED_OUT")
- * if (timedOut) timedOut.data.limit
+ * isVigorRetryError(error, "TIMED_OUT", error => {
+ *     error.data.limit // found even when wrapped in RETRY_EXHAUSTED
+ * })
  */
-declare function findVigorRetryError<E, const C extends VigorRetryErrorCodes>(error: E, ...codes: [C, ...C[]]): VigorRetryErrorsIn<E, C> | null;
+declare function isVigorRetryError<E, const C extends VigorRetryErrorCodes, R>(error: E, codes: C | readonly [C, ...C[]], callback: (error: VigorRetryErrorsIn<E, C>) => R): R | undefined;
+declare function isVigorRetryError<E>(error: E): error is E & VigorRetryErrorsIn<E>;
+declare function isVigorRetryError<E, const C extends VigorRetryErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorRetryErrorsIn<E, C>;
 
 type VigorRetryPolicySchema<T extends VigorRetrySchema<T>> = {
     __brand: VigorBrand<"Retry", "Policy<Schema">;
@@ -2520,23 +2530,23 @@ type VigorAllErrorsIn<E, C extends VigorAllErrorCodes = VigorAllErrorCodes> = [
  * if (isVigorAllError(error, "TIMED_OUT")) {
  *     error.data // that code's payload
  * }
- */
-declare function isVigorAllError<E>(error: E): error is E & VigorAllErrorsIn<E>;
-declare function isVigorAllError<E, const C extends VigorAllErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorAllErrorsIn<E, C>;
-/**
- * Like `isVigorAllError(error, ...codes)`, but also looks inside the errors
- * `error` wraps — `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
- * then `cause` — and returns the first match, outermost first. Returns
- * `null` when there is none. `error` itself is left as it is.
  *
- * A guard can't do this: it narrows the value you pass, so a `true` for a
- * wrapped match would claim the wrapper has the inner error's `data`.
+ * Pass a `callback` as the third argument (with the code, or an array of
+ * codes, as the second) to also look inside the errors `error` wraps: the
+ * error itself, then `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
+ * then `cause`. `callback` gets the first match, outermost first, typed for
+ * its code; the guard returns what `callback` returns, or `undefined` when
+ * nothing matches. (A plain guard can't do this: it narrows `error` itself,
+ * which is still the wrapper.)
  *
  * @example
- * const timedOut = findVigorAllError(error, "TIMED_OUT")
- * if (timedOut) timedOut.data.index
+ * isVigorAllError(error, "TIMED_OUT", error => {
+ *     error.data.index // found even when wrapped in RETRY_EXHAUSTED
+ * })
  */
-declare function findVigorAllError<E, const C extends VigorAllErrorCodes>(error: E, ...codes: [C, ...C[]]): VigorAllErrorsIn<E, C> | null;
+declare function isVigorAllError<E, const C extends VigorAllErrorCodes, R>(error: E, codes: C | readonly [C, ...C[]], callback: (error: VigorAllErrorsIn<E, C>) => R): R | undefined;
+declare function isVigorAllError<E>(error: E): error is E & VigorAllErrorsIn<E>;
+declare function isVigorAllError<E, const C extends VigorAllErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorAllErrorsIn<E, C>;
 
 /**
  * A single task. It receives an `AbortSignal` that fires when the task's
@@ -4064,23 +4074,23 @@ type VigorFetchErrorsIn<E, C extends VigorFetchErrorCodes = VigorFetchErrorCodes
  * if (isVigorFetchError(error, "FETCH_FAILED")) {
  *     error.data // that code's payload
  * }
- */
-declare function isVigorFetchError<E>(error: E): error is E & VigorFetchErrorsIn<E>;
-declare function isVigorFetchError<E, const C extends VigorFetchErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorFetchErrorsIn<E, C>;
-/**
- * Like `isVigorFetchError(error, ...codes)`, but also looks inside the errors
- * `error` wraps — `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
- * then `cause` — and returns the first match, outermost first. Returns
- * `null` when there is none. `error` itself is left as it is.
  *
- * A guard can't do this: it narrows the value you pass, so a `true` for a
- * wrapped match would claim the wrapper has the inner error's `data`.
+ * Pass a `callback` as the third argument (with the code, or an array of
+ * codes, as the second) to also look inside the errors `error` wraps: the
+ * error itself, then `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
+ * then `cause`. `callback` gets the first match, outermost first, typed for
+ * its code; the guard returns what `callback` returns, or `undefined` when
+ * nothing matches. (A plain guard can't do this: it narrows `error` itself,
+ * which is still the wrapper.)
  *
  * @example
- * const failed = findVigorFetchError(error, "FETCH_FAILED")
- * if (failed) failed.data.status
+ * isVigorFetchError(error, "FETCH_FAILED", error => {
+ *     error.data.status // found even when wrapped in RETRY_EXHAUSTED
+ * })
  */
-declare function findVigorFetchError<E, const C extends VigorFetchErrorCodes>(error: E, ...codes: [C, ...C[]]): VigorFetchErrorsIn<E, C> | null;
+declare function isVigorFetchError<E, const C extends VigorFetchErrorCodes, R>(error: E, codes: C | readonly [C, ...C[]], callback: (error: VigorFetchErrorsIn<E, C>) => R): R | undefined;
+declare function isVigorFetchError<E>(error: E): error is E & VigorFetchErrorsIn<E>;
+declare function isVigorFetchError<E, const C extends VigorFetchErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorFetchErrorsIn<E, C>;
 /**
  * Re-raises an error of the nested retry/parse engine as a `VigorFetchError`
  * with the same `code`, `data`, and `method`, keeping the original as
@@ -5481,18 +5491,10 @@ declare const vigorBase: {
         };
     };
     guards: {
-        retry: typeof isVigorRetryError & {
-            find: typeof findVigorRetryError;
-        };
-        parse: typeof isVigorParseError & {
-            find: typeof findVigorParseError;
-        };
-        fetch: typeof isVigorFetchError & {
-            find: typeof findVigorFetchError;
-        };
-        all: typeof isVigorAllError & {
-            find: typeof findVigorAllError;
-        };
+        retry: typeof isVigorRetryError;
+        parse: typeof isVigorParseError;
+        fetch: typeof isVigorFetchError;
+        all: typeof isVigorAllError;
     };
 };
 /** `A` with `B`'s properties replacing same-named ones, like `{ ...A, ...B }`. */
@@ -5522,4 +5524,4 @@ type VigorPlugin<O extends {
 };
 declare const vigor: VigorInstance;
 
-export { VigorAll, type VigorAllAfterContextSchema, VigorAllBase, type VigorAllBeforeContextSchema, type VigorAllCastNaturalResult, VigorAllContextBase, type VigorAllContextSchema, VigorAllEachContextBase, type VigorAllEachContextSchema, type VigorAllEachMiddlewareFn, type VigorAllEachOnErrorFn, VigorAllError, type VigorAllErrorCodes, type VigorAllErrorCodesWithOptionalContext, type VigorAllErrorCodesWithoutContext, type VigorAllErrorContext, type VigorAllErrorDatas, VigorAllErrorMessageFuncs, type VigorAllErrors, type VigorAllErrorsIn, type VigorAllNaturalResult, type VigorAllOnResultContextSchema, type VigorAllPipeResult, VigorAllPolicyBase, VigorAllPolicyMiddlewares, type VigorAllPolicyMiddlewaresApi, VigorAllPolicyMiddlewaresBase, type VigorAllPolicyMiddlewaresFluent, type VigorAllPolicyMiddlewaresIntercept, type VigorAllPolicyMiddlewaresSchema, type VigorAllPolicySchema, VigorAllPolicySettings, VigorAllPolicySettingsBase, type VigorAllPolicySettingsSchema, type VigorAllProcessHandler, type VigorAllRequestError, type VigorAllResult, type VigorAllResultContextSchema, type VigorAllSchema, type VigorAllSettled, type VigorAllTask, type VigorAllTaskError, type VigorAllTaskResult, type VigorAllTasksTuple, type VigorAllTimeline, type VigorAllTimelineEvents, type VigorAllTimelineSnapshot, type VigorApiFailure, type VigorApiKeys, type VigorApiMap, type VigorApiMapSlot, type VigorApiMatch, type VigorApiMatched, type VigorApiMethod, type VigorApiNoMatchType, type VigorApiParamValue, type VigorApiRequestIssue, type VigorApiRequestIssues, type VigorApiResponse, type VigorApiRoute, type VigorApiRouteKey, type VigorApiRouteOf, type VigorApiStatusClass, type VigorApiSuccess, type VigorBrand, type VigorBuiltin, VigorCastPlaceholder, type VigorCastPlaceholderType, type VigorCastResult, type VigorConcat, type VigorContextApply, type VigorContextChanges, type VigorContextReset, type VigorContextStage, type VigorDeepMerge, type VigorDeepPartial, VigorDefault, type VigorDefaultType, VigorEmpty, type VigorEmptyType, VigorError, type VigorErrorContext, type VigorErrorOptions, type VigorExcludeDefault, type VigorExcludeEmpty, VigorFetch, type VigorFetchAfterContextSchema, VigorFetchBase, type VigorFetchBeforeContextSchema, type VigorFetchBodyFor, VigorFetchContextBase, type VigorFetchContextSchema, VigorFetchError, type VigorFetchErrorCodes, type VigorFetchErrorCodesWithOptionalContext, type VigorFetchErrorCodesWithoutContext, type VigorFetchErrorContext, type VigorFetchErrorDatas, VigorFetchErrorMessageFuncs, type VigorFetchErrorPipeResult, type VigorFetchErrors, type VigorFetchErrorsIn, type VigorFetchExtraOptions, type VigorFetchFailedData, type VigorFetchInferResult, type VigorFetchMethodFor, type VigorFetchNaturalFor, type VigorFetchNaturalResult, type VigorFetchOnErrorContextSchema, type VigorFetchOnResultContextSchema, type VigorFetchOptions, type VigorFetchParseSource, type VigorFetchParsedResult, type VigorFetchPipeResult, VigorFetchPolicyBase, VigorFetchPolicyMiddlewares, type VigorFetchPolicyMiddlewaresApi, VigorFetchPolicyMiddlewaresBase, type VigorFetchPolicyMiddlewaresFluent, type VigorFetchPolicyMiddlewaresIntercept, type VigorFetchPolicyMiddlewaresSchema, type VigorFetchPolicySchema, VigorFetchPolicySettings, VigorFetchPolicySettingsBase, type VigorFetchPolicySettingsSchema, type VigorFetchProcessHandler, type VigorFetchRequestError, type VigorFetchRequestThis, type VigorFetchResult, type VigorFetchResultContextSchema, type VigorFetchRouteKeys, type VigorFetchSchema, type VigorFetchTimeline, type VigorFetchTimelineEvents, type VigorFetchTimelineSnapshot, type VigorFetchVerboseResult, type VigorHttpFailureStatus, type VigorHttpStatusOf, type VigorHttpSuccessStatus, type VigorInstance, type VigorIsSame, VigorJitter, type VigorLastOf, type VigorMergeMode, type VigorMergeStrategy, type VigorNoExtraKeys, VigorParse, type VigorParseAfterContextSchema, VigorParseBase, type VigorParseBeforeContextSchema, type VigorParseBody, VigorParseContentTypeStrategy, VigorParseContextBase, type VigorParseContextSchema, VigorParseError, type VigorParseErrorCodes, type VigorParseErrorCodesWithOptionalContext, type VigorParseErrorCodesWithoutContext, type VigorParseErrorContext, type VigorParseErrorDatas, VigorParseErrorMessageFuncs, type VigorParseErrorPipeResult, type VigorParseErrors, type VigorParseErrorsIn, type VigorParseNaturalResult, type VigorParseOnErrorContextSchema, type VigorParseOnResultContextSchema, type VigorParsePipeResult, VigorParsePolicyBase, VigorParsePolicyMiddlewares, type VigorParsePolicyMiddlewaresApi, VigorParsePolicyMiddlewaresBase, type VigorParsePolicyMiddlewaresFluent, type VigorParsePolicyMiddlewaresIntercept, type VigorParsePolicyMiddlewaresSchema, type VigorParsePolicySchema, VigorParsePolicySettings, VigorParsePolicySettingsBase, type VigorParsePolicySettingsSchema, VigorParsePolicyStrategies, VigorParsePolicyStrategiesBase, type VigorParsePolicyStrategiesSchema, type VigorParseProcessHandler, type VigorParseRequestError, type VigorParseResult, type VigorParseResultContextSchema, type VigorParseSchema, VigorParseSniffStrategy, type VigorParseStrategyFunc, type VigorParseTimeline, type VigorParseTimelineEvents, type VigorParseTimelineSnapshot, type VigorPathList, type VigorPathSegments, type VigorPlugin, type VigorPrimitive, type VigorReplaceType, type VigorResolvedMethod, type VigorResultError, type VigorResultOf, VigorRetry, type VigorRetryAfterContextSchema, VigorRetryBase, type VigorRetryBeforeContextSchema, VigorRetryContextBase, type VigorRetryContextSchema, type VigorRetryDecisionReason, VigorRetryError, type VigorRetryErrorCodes, type VigorRetryErrorCodesWithOptionalContext, type VigorRetryErrorCodesWithoutContext, type VigorRetryErrorContext, type VigorRetryErrorDatas, VigorRetryErrorMessageFuncs, type VigorRetryErrorPipeResult, type VigorRetryErrors, type VigorRetryErrorsIn, type VigorRetryNaturalResult, type VigorRetryOnErrorContextSchema, type VigorRetryOnResultContextSchema, type VigorRetryOnRetryContextSchema, type VigorRetryPipeResult, VigorRetryPolicyAlgorithms, VigorRetryPolicyAlgorithmsBackoff, VigorRetryPolicyAlgorithmsBackoffBase, type VigorRetryPolicyAlgorithmsBackoffSchema, VigorRetryPolicyAlgorithmsBase, VigorRetryPolicyAlgorithmsConstant, VigorRetryPolicyAlgorithmsConstantBase, type VigorRetryPolicyAlgorithmsConstantSchema, VigorRetryPolicyAlgorithmsCustom, VigorRetryPolicyAlgorithmsCustomBase, type VigorRetryPolicyAlgorithmsCustomSchema, VigorRetryPolicyAlgorithmsLinear, VigorRetryPolicyAlgorithmsLinearBase, type VigorRetryPolicyAlgorithmsLinearSchema, type VigorRetryPolicyAlgorithmsSchema, VigorRetryPolicyBase, VigorRetryPolicyMiddlewares, type VigorRetryPolicyMiddlewaresApi, VigorRetryPolicyMiddlewaresBase, type VigorRetryPolicyMiddlewaresFluent, type VigorRetryPolicyMiddlewaresIntercept, type VigorRetryPolicyMiddlewaresSchema, type VigorRetryPolicySchema, VigorRetryPolicySettings, VigorRetryPolicySettingsBase, type VigorRetryPolicySettingsSchema, type VigorRetryProcessHandler, type VigorRetryRequestError, type VigorRetryResult, type VigorRetryResultContextSchema, type VigorRetryRetryIfContextSchema, type VigorRetrySchema, type VigorRetryTimeline, type VigorRetryTimelineEvents, type VigorRetryTimelineSnapshot, type VigorReturnType, type VigorRouteMethod, type VigorRouteParams, type VigorRoutePath, type VigorRoutePathList, type VigorRouteWithParams, type VigorRouteWithoutParams, type VigorSimplify, VigorStatus, type VigorStringable, type VigorTimeline, type VigorTimelineEndEvents, type VigorTimelineItem, type VigorTimelineMiddlewareEvents, type VigorTimelineOutcome, type VigorTimelineProcessEvents, type VigorTimelineSnapshot, adoptVigorFetchError, createBrand, createVigorTimelineRecorder, vigor as default, findInVigorErrorChain, findVigorAllError, findVigorFetchError, findVigorParseError, findVigorRetryError, isVigorAllError, isVigorDefault, isVigorEmpty, isVigorFetchError, isVigorInternalMiddleware, isVigorParseError, isVigorRetryError, markVigorInternal, readVigorParseBody, vigor };
+export { VigorAll, type VigorAllAfterContextSchema, VigorAllBase, type VigorAllBeforeContextSchema, type VigorAllCastNaturalResult, VigorAllContextBase, type VigorAllContextSchema, VigorAllEachContextBase, type VigorAllEachContextSchema, type VigorAllEachMiddlewareFn, type VigorAllEachOnErrorFn, VigorAllError, type VigorAllErrorCodes, type VigorAllErrorCodesWithOptionalContext, type VigorAllErrorCodesWithoutContext, type VigorAllErrorContext, type VigorAllErrorDatas, VigorAllErrorMessageFuncs, type VigorAllErrors, type VigorAllErrorsIn, type VigorAllNaturalResult, type VigorAllOnResultContextSchema, type VigorAllPipeResult, VigorAllPolicyBase, VigorAllPolicyMiddlewares, type VigorAllPolicyMiddlewaresApi, VigorAllPolicyMiddlewaresBase, type VigorAllPolicyMiddlewaresFluent, type VigorAllPolicyMiddlewaresIntercept, type VigorAllPolicyMiddlewaresSchema, type VigorAllPolicySchema, VigorAllPolicySettings, VigorAllPolicySettingsBase, type VigorAllPolicySettingsSchema, type VigorAllProcessHandler, type VigorAllRequestError, type VigorAllResult, type VigorAllResultContextSchema, type VigorAllSchema, type VigorAllSettled, type VigorAllTask, type VigorAllTaskError, type VigorAllTaskResult, type VigorAllTasksTuple, type VigorAllTimeline, type VigorAllTimelineEvents, type VigorAllTimelineSnapshot, type VigorApiFailure, type VigorApiKeys, type VigorApiMap, type VigorApiMapSlot, type VigorApiMatch, type VigorApiMatched, type VigorApiMethod, type VigorApiNoMatchType, type VigorApiParamValue, type VigorApiRequestIssue, type VigorApiRequestIssues, type VigorApiResponse, type VigorApiRoute, type VigorApiRouteKey, type VigorApiRouteOf, type VigorApiStatusClass, type VigorApiSuccess, type VigorBrand, type VigorBuiltin, VigorCastPlaceholder, type VigorCastPlaceholderType, type VigorCastResult, type VigorConcat, type VigorContextApply, type VigorContextChanges, type VigorContextReset, type VigorContextStage, type VigorDeepMerge, type VigorDeepPartial, VigorDefault, type VigorDefaultType, VigorEmpty, type VigorEmptyType, VigorError, type VigorErrorContext, type VigorErrorOptions, type VigorExcludeDefault, type VigorExcludeEmpty, VigorFetch, type VigorFetchAfterContextSchema, VigorFetchBase, type VigorFetchBeforeContextSchema, type VigorFetchBodyFor, VigorFetchContextBase, type VigorFetchContextSchema, VigorFetchError, type VigorFetchErrorCodes, type VigorFetchErrorCodesWithOptionalContext, type VigorFetchErrorCodesWithoutContext, type VigorFetchErrorContext, type VigorFetchErrorDatas, VigorFetchErrorMessageFuncs, type VigorFetchErrorPipeResult, type VigorFetchErrors, type VigorFetchErrorsIn, type VigorFetchExtraOptions, type VigorFetchFailedData, type VigorFetchInferResult, type VigorFetchMethodFor, type VigorFetchNaturalFor, type VigorFetchNaturalResult, type VigorFetchOnErrorContextSchema, type VigorFetchOnResultContextSchema, type VigorFetchOptions, type VigorFetchParseSource, type VigorFetchParsedResult, type VigorFetchPipeResult, VigorFetchPolicyBase, VigorFetchPolicyMiddlewares, type VigorFetchPolicyMiddlewaresApi, VigorFetchPolicyMiddlewaresBase, type VigorFetchPolicyMiddlewaresFluent, type VigorFetchPolicyMiddlewaresIntercept, type VigorFetchPolicyMiddlewaresSchema, type VigorFetchPolicySchema, VigorFetchPolicySettings, VigorFetchPolicySettingsBase, type VigorFetchPolicySettingsSchema, type VigorFetchProcessHandler, type VigorFetchRequestError, type VigorFetchRequestThis, type VigorFetchResult, type VigorFetchResultContextSchema, type VigorFetchRouteKeys, type VigorFetchSchema, type VigorFetchTimeline, type VigorFetchTimelineEvents, type VigorFetchTimelineSnapshot, type VigorFetchVerboseResult, type VigorHttpFailureStatus, type VigorHttpStatusOf, type VigorHttpSuccessStatus, type VigorInstance, type VigorIsSame, VigorJitter, type VigorLastOf, type VigorMergeMode, type VigorMergeStrategy, type VigorNoExtraKeys, VigorParse, type VigorParseAfterContextSchema, VigorParseBase, type VigorParseBeforeContextSchema, type VigorParseBody, VigorParseContentTypeStrategy, VigorParseContextBase, type VigorParseContextSchema, VigorParseError, type VigorParseErrorCodes, type VigorParseErrorCodesWithOptionalContext, type VigorParseErrorCodesWithoutContext, type VigorParseErrorContext, type VigorParseErrorDatas, VigorParseErrorMessageFuncs, type VigorParseErrorPipeResult, type VigorParseErrors, type VigorParseErrorsIn, type VigorParseNaturalResult, type VigorParseOnErrorContextSchema, type VigorParseOnResultContextSchema, type VigorParsePipeResult, VigorParsePolicyBase, VigorParsePolicyMiddlewares, type VigorParsePolicyMiddlewaresApi, VigorParsePolicyMiddlewaresBase, type VigorParsePolicyMiddlewaresFluent, type VigorParsePolicyMiddlewaresIntercept, type VigorParsePolicyMiddlewaresSchema, type VigorParsePolicySchema, VigorParsePolicySettings, VigorParsePolicySettingsBase, type VigorParsePolicySettingsSchema, VigorParsePolicyStrategies, VigorParsePolicyStrategiesBase, type VigorParsePolicyStrategiesSchema, type VigorParseProcessHandler, type VigorParseRequestError, type VigorParseResult, type VigorParseResultContextSchema, type VigorParseSchema, VigorParseSniffStrategy, type VigorParseStrategyFunc, type VigorParseTimeline, type VigorParseTimelineEvents, type VigorParseTimelineSnapshot, type VigorPathList, type VigorPathSegments, type VigorPlugin, type VigorPrimitive, type VigorReplaceType, type VigorResolvedMethod, type VigorResultError, type VigorResultOf, VigorRetry, type VigorRetryAfterContextSchema, VigorRetryBase, type VigorRetryBeforeContextSchema, VigorRetryContextBase, type VigorRetryContextSchema, type VigorRetryDecisionReason, VigorRetryError, type VigorRetryErrorCodes, type VigorRetryErrorCodesWithOptionalContext, type VigorRetryErrorCodesWithoutContext, type VigorRetryErrorContext, type VigorRetryErrorDatas, VigorRetryErrorMessageFuncs, type VigorRetryErrorPipeResult, type VigorRetryErrors, type VigorRetryErrorsIn, type VigorRetryNaturalResult, type VigorRetryOnErrorContextSchema, type VigorRetryOnResultContextSchema, type VigorRetryOnRetryContextSchema, type VigorRetryPipeResult, VigorRetryPolicyAlgorithms, VigorRetryPolicyAlgorithmsBackoff, VigorRetryPolicyAlgorithmsBackoffBase, type VigorRetryPolicyAlgorithmsBackoffSchema, VigorRetryPolicyAlgorithmsBase, VigorRetryPolicyAlgorithmsConstant, VigorRetryPolicyAlgorithmsConstantBase, type VigorRetryPolicyAlgorithmsConstantSchema, VigorRetryPolicyAlgorithmsCustom, VigorRetryPolicyAlgorithmsCustomBase, type VigorRetryPolicyAlgorithmsCustomSchema, VigorRetryPolicyAlgorithmsLinear, VigorRetryPolicyAlgorithmsLinearBase, type VigorRetryPolicyAlgorithmsLinearSchema, type VigorRetryPolicyAlgorithmsSchema, VigorRetryPolicyBase, VigorRetryPolicyMiddlewares, type VigorRetryPolicyMiddlewaresApi, VigorRetryPolicyMiddlewaresBase, type VigorRetryPolicyMiddlewaresFluent, type VigorRetryPolicyMiddlewaresIntercept, type VigorRetryPolicyMiddlewaresSchema, type VigorRetryPolicySchema, VigorRetryPolicySettings, VigorRetryPolicySettingsBase, type VigorRetryPolicySettingsSchema, type VigorRetryProcessHandler, type VigorRetryRequestError, type VigorRetryResult, type VigorRetryResultContextSchema, type VigorRetryRetryIfContextSchema, type VigorRetrySchema, type VigorRetryTimeline, type VigorRetryTimelineEvents, type VigorRetryTimelineSnapshot, type VigorReturnType, type VigorRouteMethod, type VigorRouteParams, type VigorRoutePath, type VigorRoutePathList, type VigorRouteWithParams, type VigorRouteWithoutParams, type VigorSimplify, VigorStatus, type VigorStringable, type VigorTimeline, type VigorTimelineEndEvents, type VigorTimelineItem, type VigorTimelineMiddlewareEvents, type VigorTimelineOutcome, type VigorTimelineProcessEvents, type VigorTimelineSnapshot, adoptVigorFetchError, createBrand, createVigorTimelineRecorder, vigor as default, findInVigorErrorChain, isVigorAllError, isVigorDefault, isVigorEmpty, isVigorFetchError, isVigorInternalMiddleware, isVigorParseError, isVigorRetryError, markVigorInternal, readVigorParseBody, runVigorGuard, vigor };
