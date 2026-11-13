@@ -1,7 +1,7 @@
 /**
  * Type tests for `.apiMap<M>()` and `.route()`. Run with `npm run test:types`.
  */
-import vigor, { isVigorFetchError } from "../src/index"
+import vigor, { isVigorFetchError, findVigorFetchError } from "../src/index"
 
 type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? true : false
 type Expect<T extends true> = T
@@ -290,6 +290,16 @@ export async function failedThroughRetry() {
     const last = f.error.data.error
     if (isVigorFetchError(last, "FETCH_FAILED") && last.data.status === 422) {
         const parsed: Expect<Equal<typeof last.data.parsed, { fields: Record<string, string> } | undefined>> = true
+    }
+}
+
+// `find` reaches the same typed failure without unwrapping by hand.
+export async function failedThroughRetryFind() {
+    const f = await api2.route("POST /items").body("overwrite", { name: "a" }).requestVerbose()
+    if (f.success) return
+    const failed = findVigorFetchError(f.error, "FETCH_FAILED")
+    if (failed && failed.data.status === 422) {
+        const parsed: Expect<Equal<typeof failed.data.parsed, { fields: Record<string, string> } | undefined>> = true
     }
 }
 

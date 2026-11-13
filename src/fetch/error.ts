@@ -1,4 +1,4 @@
-import { VigorError, VigorErrorContext, VigorErrorOptions, VigorResultError } from "@core/error";
+import { VigorError, VigorErrorContext, VigorErrorOptions, VigorResultError, findInVigorErrorChain } from "@core/error";
 import { VigorRetryError, VigorRetryErrorMessageFuncs } from "@retry/error";
 import { VigorParseError, VigorParseErrorMessageFuncs } from "@parse/error";
 import { VigorFetchSchema } from "./main";
@@ -148,6 +148,24 @@ export function isVigorFetchError<E>(error: E): error is E & VigorFetchErrorsIn<
 export function isVigorFetchError<E, const C extends VigorFetchErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorFetchErrorsIn<E, C>
 export function isVigorFetchError(error: unknown, ...codes: VigorFetchErrorCodes[]): boolean {
     return error instanceof VigorFetchError && (codes.length === 0 || codes.includes(error.code))
+}
+
+/**
+ * Like `isVigorFetchError(error, ...codes)`, but also looks inside the errors
+ * `error` wraps — `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
+ * then `cause` — and returns the first match, outermost first. Returns
+ * `null` when there is none. `error` itself is left as it is.
+ *
+ * A guard can't do this: it narrows the value you pass, so a `true` for a
+ * wrapped match would claim the wrapper has the inner error's `data`.
+ *
+ * @example
+ * const failed = findVigorFetchError(error, "FETCH_FAILED")
+ * if (failed) failed.data.status
+ */
+export function findVigorFetchError<E, const C extends VigorFetchErrorCodes>(error: E, ...codes: [C, ...C[]]): VigorFetchErrorsIn<E, C> | null {
+    const found = findInVigorErrorChain(error, e => isVigorFetchError(e, ...codes))
+    return found === undefined ? null : found as VigorFetchErrorsIn<E, C>
 }
 
 /**

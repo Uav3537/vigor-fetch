@@ -83,3 +83,31 @@ export abstract class VigorError<C extends string, D, T = unknown> extends Error
         (Error as any).captureStackTrace?.(this, new.target);
     }
 }
+
+/**
+ * Finds the first error in `error`'s chain that `match` accepts, from the
+ * outside in: the error itself, then the error it wraps (`data.error` of
+ * `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`), then its `cause`. Each wrapped
+ * error is searched fully before moving on. Cycles are skipped.
+ *
+ * This is what the `find` of each `vigor.guards.*` uses, so a caller can ask
+ * for the error that actually happened (e.g. `FETCH_FAILED`) without
+ * unwrapping the retry layers by hand.
+ */
+export function findInVigorErrorChain(error: unknown, match: (error: unknown) => boolean): unknown {
+    const seen = new Set<unknown>()
+    const visit = (current: unknown): unknown => {
+        if (current === null || current === undefined || seen.has(current)) return undefined
+        seen.add(current)
+        if (match(current)) return current
+        if (typeof current !== "object") return undefined
+
+        const data = (current as { data?: unknown }).data
+        if (current instanceof VigorError && data !== null && typeof data === "object" && "error" in data) {
+            const found = visit((data as { error: unknown }).error)
+            if (found !== undefined) return found
+        }
+        return visit((current as { cause?: unknown }).cause)
+    }
+    return visit(error)
+}

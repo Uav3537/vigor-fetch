@@ -22,10 +22,17 @@ import {
     VigorRetryPolicyAlgorithmsBackoff,
     VigorRetryPolicyAlgorithmsCustom,
 } from "@retry/algorithms";
-import { isVigorRetryError } from "@retry/error";
-import { isVigorParseError } from "@parse/error";
-import { isVigorFetchError } from "@fetch/error";
-import { isVigorAllError } from "@all/error";
+import { isVigorRetryError, findVigorRetryError } from "@retry/error";
+import { isVigorParseError, findVigorParseError } from "@parse/error";
+import { isVigorFetchError, findVigorFetchError } from "@fetch/error";
+import { isVigorAllError, findVigorAllError } from "@all/error";
+
+/**
+ * A module's guard with its `find` attached. A new function, so the exported
+ * `isVigor*Error` itself never gets a `find` property.
+ */
+const guardWithFind = <G extends (...args: any[]) => boolean, F>(guard: G, find: F): G & { find: F } =>
+    Object.assign(((...args: unknown[]) => guard(...args)) as G, { find })
 
 /**
  * The result type `request()` infers for a builder — what `ReturnType`
@@ -127,10 +134,10 @@ const vigorBase = {
     },
 
     guards: {
-        retry: isVigorRetryError,
-        parse: isVigorParseError,
-        fetch: isVigorFetchError,
-        all:   isVigorAllError,
+        retry: guardWithFind(isVigorRetryError, findVigorRetryError),
+        parse: guardWithFind(isVigorParseError, findVigorParseError),
+        fetch: guardWithFind(isVigorFetchError, findVigorFetchError),
+        all:   guardWithFind(isVigorAllError, findVigorAllError),
     }
 }
 

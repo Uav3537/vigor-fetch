@@ -1,4 +1,4 @@
-import { VigorError, VigorErrorContext, VigorErrorOptions, VigorResultError } from "@core/error";
+import { VigorError, VigorErrorContext, VigorErrorOptions, VigorResultError, findInVigorErrorChain } from "@core/error";
 import { VigorParseSchema } from "./main";
 import type { VigorParseContextSchema } from "./context";
 
@@ -112,4 +112,22 @@ export function isVigorParseError<E>(error: E): error is E & VigorParseErrorsIn<
 export function isVigorParseError<E, const C extends VigorParseErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorParseErrorsIn<E, C>
 export function isVigorParseError(error: unknown, ...codes: VigorParseErrorCodes[]): boolean {
     return error instanceof VigorParseError && (codes.length === 0 || codes.includes(error.code))
+}
+
+/**
+ * Like `isVigorParseError(error, ...codes)`, but also looks inside the errors
+ * `error` wraps — `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
+ * then `cause` — and returns the first match, outermost first. Returns
+ * `null` when there is none. `error` itself is left as it is.
+ *
+ * A guard can't do this: it narrows the value you pass, so a `true` for a
+ * wrapped match would claim the wrapper has the inner error's `data`.
+ *
+ * @example
+ * const notFound = findVigorParseError(error, "PARSER_NOT_FOUND")
+ * if (notFound) notFound.data.expected
+ */
+export function findVigorParseError<E, const C extends VigorParseErrorCodes>(error: E, ...codes: [C, ...C[]]): VigorParseErrorsIn<E, C> | null {
+    const found = findInVigorErrorChain(error, e => isVigorParseError(e, ...codes))
+    return found === undefined ? null : found as VigorParseErrorsIn<E, C>
 }

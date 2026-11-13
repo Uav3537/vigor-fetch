@@ -1,4 +1,4 @@
-import { VigorError, VigorErrorContext, VigorErrorOptions, VigorResultError } from "@core/error";
+import { VigorError, VigorErrorContext, VigorErrorOptions, VigorResultError, findInVigorErrorChain } from "@core/error";
 import { VigorAllSchema } from "./main";
 import type { VigorAllContextSchema } from "./context";
 
@@ -95,4 +95,22 @@ export function isVigorAllError<E>(error: E): error is E & VigorAllErrorsIn<E>
 export function isVigorAllError<E, const C extends VigorAllErrorCodes>(error: E, ...codes: [C, ...C[]]): error is E & VigorAllErrorsIn<E, C>
 export function isVigorAllError(error: unknown, ...codes: VigorAllErrorCodes[]): boolean {
     return error instanceof VigorAllError && (codes.length === 0 || codes.includes(error.code))
+}
+
+/**
+ * Like `isVigorAllError(error, ...codes)`, but also looks inside the errors
+ * `error` wraps — `data.error` of `RETRY_EXHAUSTED` / `RESTART_EXHAUSTED`,
+ * then `cause` — and returns the first match, outermost first. Returns
+ * `null` when there is none. `error` itself is left as it is.
+ *
+ * A guard can't do this: it narrows the value you pass, so a `true` for a
+ * wrapped match would claim the wrapper has the inner error's `data`.
+ *
+ * @example
+ * const timedOut = findVigorAllError(error, "TIMED_OUT")
+ * if (timedOut) timedOut.data.index
+ */
+export function findVigorAllError<E, const C extends VigorAllErrorCodes>(error: E, ...codes: [C, ...C[]]): VigorAllErrorsIn<E, C> | null {
+    const found = findInVigorErrorChain(error, e => isVigorAllError(e, ...codes))
+    return found === undefined ? null : found as VigorAllErrorsIn<E, C>
 }

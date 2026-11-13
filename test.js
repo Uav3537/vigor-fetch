@@ -111,6 +111,38 @@ await test("Fetch requestVerbose() carries the response's status, null when ther
     }
 });
 
+await test("guards.*.find reaches the error wrapped by RETRY_EXHAUSTED", async () => {
+    const server = http.createServer((req, res) => {
+        res.statusCode = 503;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ reason: "down" }));
+    });
+    await new Promise((resolve) => server.listen(0, resolve));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    try {
+        const res = await vigor.fetch(origin)
+            .retry((r) => r.settings({ maxAttempts: 2 }).algorithms((a) => a.constant({ interval: 0, jitter: 0 })))
+            .requestVerbose();
+        assert.equal(res.success, false, "a 503 did not fail");
+        assert.ok(vigor.guards.fetch(res.error, "RETRY_EXHAUSTED"), "the outer error is not RETRY_EXHAUSTED");
+        assert.ok(!vigor.guards.fetch(res.error, "FETCH_FAILED"), "the guard matched a wrapped error");
+
+        const failed = vigor.guards.fetch.find(res.error, "FETCH_FAILED");
+        assert.ok(failed instanceof VigorFetchError, "find did not return the wrapped error");
+        assert.equal(failed.data.status, 503, "the found error is not the response's");
+        assert.deepEqual(failed.data.parsed, { reason: "down" }, "the found error lost its parsed body");
+        assert.equal(esm.findVigorFetchError(res.error, "FETCH_FAILED"), failed, "the export and guards.fetch.find differ");
+
+        assert.equal(vigor.guards.fetch.find(res.error, "RETRY_EXHAUSTED"), res.error, "find does not return the error itself first");
+        assert.equal(vigor.guards.fetch.find(res.error, "REDIRECTED"), null, "find returned a missing code");
+        assert.equal(vigor.guards.fetch.find(new Error("plain"), "FETCH_FAILED"), null, "find matched a plain error");
+        assert.equal(vigor.guards.fetch.find(null, "FETCH_FAILED"), null, "find did not handle null");
+        assert.equal(typeof esm.isVigorFetchError.find, "undefined", "the exported guard got a find property");
+    } finally {
+        server.close();
+    }
+});
+
 await test("CJS build's vigor works the same as ESM's", async () => {
     const random = Math.random();
     const result = await cjs.vigor
