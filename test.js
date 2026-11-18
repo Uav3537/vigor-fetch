@@ -90,25 +90,62 @@ await test("Fetch requestVerbose() carries the response's status, null when ther
     await new Promise((resolve) => server.listen(0, resolve));
     const origin = `http://127.0.0.1:${server.address().port}`;
     try {
-        const ok = await vigor.fetch(origin).path("created").requestVerbose();
+        const ok = await vigor.fetch(origin).path("append", "created").requestVerbose();
         assert.equal(ok.success, true, "request did not succeed");
         assert.equal(ok.status, 201, "status is not the response's");
         assert.ok(ok.response instanceof Response, "response is not the Response");
         assert.deepEqual(ok.data, { url: "/created" }, "data is not the parsed body");
 
-        const failed = await vigor.fetch(origin).path("missing").requestVerbose();
+        const failed = await vigor.fetch(origin).path("append", "missing").requestVerbose();
         assert.equal(failed.success, false, "a 404 did not fail");
         assert.equal(failed.status, null, "a failure has a status");
         assert.equal(failed.response, null, "a failure has a response");
         assert.equal(failed.error.data.status, 404, "the failure's status is not on its error");
 
-        const recovered = await vigor.fetch(origin).path("missing").settings({ default: () => "fallback" }).requestVerbose();
+        const recovered = await vigor.fetch(origin).path("append", "missing").settings({ default: () => "fallback" }).requestVerbose();
         assert.equal(recovered.data, "fallback", "default did not recover");
         assert.equal(recovered.status, null, "a recovered result has a status");
         assert.equal(recovered.response, null, "a recovered result has a response");
     } finally {
         server.close();
     }
+});
+
+await test("settings.fetcher replaces the global fetch, called with the built URL, init and signal", async () => {
+    const calls = [];
+    const fetcher = async function (input, init) {
+        calls.push({ input, init, self: this });
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const data = await vigor
+        .fetch("https://injected.invalid")
+        .path("append", "users")
+        .query("append", { page: 1 })
+        .body("replace", { name: "a" })
+        .settings(s => s.fetcher(fetcher))
+        .request();
+
+    assert.deepEqual(data, { ok: true }, "result did not come from the injected fetcher");
+    assert.equal(calls.length, 1, "fetcher was not called exactly once");
+    assert.equal(calls[0].input, "https://injected.invalid/users?page=1", "fetcher did not get the built URL");
+    assert.equal(calls[0].init.method, "POST", "fetcher did not get the method");
+    assert.ok(calls[0].init.signal instanceof AbortSignal, "fetcher did not get the attempt's signal");
+    assert.equal(calls[0].self, undefined, "fetcher was called with a `this`");
+});
+
+await test("settings.fetcher's failures go through the retry engine", async () => {
+    let attempts = 0;
+    const data = await vigor
+        .fetch("https://injected.invalid")
+        .settings({ fetcher: async () => {
+            attempts++;
+            return attempts < 3 ? new Response("busy", { status: 503 }) : new Response("done", { status: 200 });
+        } })
+        .retry(r => r.algorithms(a => a.constant({ interval: 0, jitter: 0 })))
+        .request();
+
+    assert.equal(data, "done", "did not resolve with the eventual response");
+    assert.equal(attempts, 3, "503s from the fetcher were not retried");
 });
 
 await test("A guard's callback reaches the error wrapped by RETRY_EXHAUSTED", async () => {
@@ -148,6 +185,118 @@ await test("A guard's callback reaches the error wrapped by RETRY_EXHAUSTED", as
     } finally {
         server.close();
     }
+});
+
+/** A fetcher that records what it was sent and answers 200 with an empty JSON object. */
+function recorder() {
+    const calls = [];
+    const fetcher = async (input, init) => {
+        calls.push({ input, init });
+        return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    };
+    return { calls, fetcher };
+}
+
+await test("path/query: \"append\" adds, \"replace\" discards what was set before", async () => {
+    const { calls, fetcher } = recorder();
+    await vigor.fetch("https://x.invalid/api")
+        .settings({ fetcher })
+        .path("append", "v1", "users").path("replace", "v2", 7)
+        .query("append", { a: 1 }).query("replace", { b: 2 })
+        .request();
+    assert.equal(calls[0].input, "https://x.invalid/api/v2/7?b=2");
+});
+
+await test("default serializers keep the previous URL rules", async () => {
+    const { calls, fetcher } = recorder();
+    const date = new Date(0);
+    await vigor.fetch("https://x.invalid/api?v=1#top")
+        .settings({ fetcher })
+        .path("append", "a b/c", null, date)
+        .query("append", { list: [1, 2], skip: undefined, at: date })
+        .request();
+    assert.equal(calls[0].input, `https://x.invalid/api/a%20b/c/${encodeURIComponent(date.toISOString())}?v=1&list=1&list=2&at=${encodeURIComponent(date.toISOString())}#top`);
+});
+
+await test("default serializers still confine the path, and dropping `confine` turns it off", async () => {
+    const { calls, fetcher } = recorder();
+    await assert.rejects(
+        () => vigor.fetch("https://x.invalid/api").settings({ fetcher }).path("append", "..", "internal").request(),
+        (err) => err.code === "PATH_ESCAPED"
+    );
+    await vigor.fetch("https://x.invalid/api").settings({ fetcher })
+        .serializers(s => s.url(u => u.hashFromOrigin()))
+        .path("append", "..", "internal")
+        .request();
+    assert.equal(calls[0].input, "https://x.invalid/internal");
+});
+
+await test("a replaced stage runs exactly the steps given", async () => {
+    const { calls, fetcher } = recorder();
+    await vigor.fetch("https://x.invalid")
+        .settings({ fetcher })
+        .serializers(s => s
+            .query(q => q.dropNullish().arrays("comma"))
+            .headers(h => h.custom("trace", headers => ({ ...headers, "X-Trace": "1" }))))
+        .query("append", { ids: [1, 2, 3], gone: null })
+        .headers("merge", { a: "1", A: "2" })
+        .body("replace", { x: 1 })
+        .request();
+    assert.equal(calls[0].input, "https://x.invalid/?ids=1%2C2%2C3");
+    // No `caseInsensitive`/`contentType` steps: both keys stay, no Content-Type is added.
+    assert.deepEqual(calls[0].init.headers, { a: "1", A: "2", "X-Trace": "1" });
+});
+
+await test("a stage that leaves non-strings fails with SERIALIZE_FAILED", async () => {
+    const { fetcher } = recorder();
+    await assert.rejects(
+        () => vigor.fetch("https://x.invalid").settings({ fetcher })
+            .serializers(s => s.path(p => p.dropNullish()))
+            .path("append", 1)
+            .request(),
+        (err) => err.code === "SERIALIZE_FAILED" && err.data.stage === "path"
+    );
+});
+
+await test("with debug, the timeline records each stage's steps and output", async () => {
+    const { fetcher } = recorder();
+    const res = await vigor.fetch("https://x.invalid").settings({ fetcher, debug: true }).path("append", "a").requestVerbose();
+    const path = res.timeline.find(e => e.action === "SERIALIZED" && e.content.stage === "path");
+    assert.deepEqual(path.content.steps, ["dropNullish", "stringify", "split(\"/\")", "encode", "prefixOrigin"]);
+    assert.deepEqual(path.content.output, ["a"]);
+});
+
+await test("retry()/parse() merge into the current engine config; an instance replaces it", async () => {
+    const f = vigor.fetch("https://x.invalid");
+
+    const cb = f.retry(r => r.settings({ maxAttempts: 8 })).retry(r => r.settings({ timeout: 100 }));
+    assert.equal(cb.config.policy.retry.policy.settings.maxAttempts, 8, "the second callback lost the first one's setting");
+    assert.equal(cb.config.policy.retry.policy.settings.timeout, 100);
+    assert.equal(cb.config.policy.retry.policy.settings.maxRestarts, 3, "an unset value lost its default");
+
+    const obj = f.retry({ policy: { settings: { maxAttempts: 8 } } }).retry(r => r.settings({ timeout: 100 }));
+    assert.equal(obj.config.policy.retry.policy.settings.maxAttempts, 8, "the callback did not start from the object's config");
+
+    const algo = f.retry(r => r.algorithms(a => a.linear())).retry({ policy: { algorithms: { _tag: "constant", interval: 0, jitter: 0 } } });
+    assert.equal(algo.config.policy.retry.policy.algorithms._tag, "constant", "the algorithm was not replaced");
+
+    const inst = f.retry(r => r.settings({ maxAttempts: 8 })).retry(new VigorRetry());
+    assert.equal(inst.config.policy.retry.policy.settings.maxAttempts, 5, "an instance did not replace the engine");
+
+    const parsed = f.parse(p => p.settings({ raw: true })).parse(p => p.settings({ maxRestarts: 1 }));
+    assert.equal(parsed.config.policy.parse.policy.settings.raw, true, "the second parse callback lost the first one's setting");
+    assert.equal(parsed.config.policy.parse.policy.settings.maxRestarts, 1);
+
+    // The merged retry config is the one used.
+    let attempts = 0;
+    await assert.rejects(
+        () => f.settings({ fetcher: async () => { attempts++; return new Response("x", { status: 503 }); } })
+            .retry(r => r.settings({ maxAttempts: 2 }))
+            .retry(r => r.algorithms(a => a.constant({ interval: 0, jitter: 0 })))
+            .request(),
+        (err) => err.code === "RETRY_EXHAUSTED"
+    );
+    assert.equal(attempts, 2, "maxAttempts from the first retry() call was not used");
 });
 
 await test("CJS build's vigor works the same as ESM's", async () => {

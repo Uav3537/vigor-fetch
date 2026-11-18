@@ -6,7 +6,7 @@ import { VigorApply } from "@core/HKT"
 import { VigorDeepMerge } from "@core/types"
 import { VigorFetchOptions } from "./context"
 import type { VigorParseResult, VigorParseSchema } from "@parse/main"
-import type { VigorApiNoMatchType, VigorApiResponse, VigorResolvedMethod } from "./api"
+import type { VigorApiNoMatchType, VigorApiResponse, VigorPathList, VigorResolvedMethod } from "./api"
 import type { VigorFetchContextSchema, VigorFetchBeforeContextSchema, VigorFetchAfterContextSchema, VigorFetchOnResultContextSchema, VigorFetchOnErrorContextSchema } from "./context"
 
 export type VigorFetchPolicyMiddlewaresSchema<
@@ -147,7 +147,9 @@ export type VigorFetchNaturalResult<T extends VigorFetchSchema<T>> =
     VigorFetchNaturalFor<T, VigorApiResponse<
         T["apiMap"],
         VigorResolvedMethod<T["policy"]["method"], T["policy"]["body"]>,
-        T["policy"]["path"]
+        VigorPathList<T["policy"]["path"]>,
+        T["policy"]["body"],
+        T["policy"]["query"]
     >>
 
 /**

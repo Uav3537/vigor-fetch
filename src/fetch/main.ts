@@ -3,7 +3,7 @@ import { VigorFetchContextBase, VigorFetchContextSchema, VigorFetchOptions } fro
 import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorFetchTypeLambda } from "./TL"
-import { VigorFetchPolicySettings, VigorFetchPolicySettingsSchema } from "./settings"
+import { VigorFetchPolicySettings, VigorFetchPolicySettingsSchema, type VigorFetcher } from "./settings"
 import { VigorBuiltin, VigorDeepMerge, VigorDeepPartial, VigorNoExtraKeys, VigorReturnType, VigorSimplify } from "@core/types"
 import { VigorFetchErrorPipeResult, VigorFetchNaturalFor, VigorFetchPipeResult, VigorFetchPolicyMiddlewares, VigorFetchPolicyMiddlewaresApi, VigorFetchPolicyMiddlewaresSchema } from "./middlewares"
 import { adoptVigorFetchError, VigorFetchError, VigorFetchRequestError } from "./error"
@@ -11,9 +11,17 @@ import { VigorRetry, VigorRetryBase, VigorRetrySchema } from "@retry/main"
 import { VigorParse, VigorParseBase, VigorParseSchema } from "@parse/main"
 import { readVigorParseBody } from "@parse/strategies"
 import { VigorFetchPolicyBase, VigorFetchPolicySchema, VigorStringable } from "./policy"
+import { VigorFetchPolicySerializers, VigorFetchSerializersSchema, VigorSerializeInfo, VigorSerializerStep, VigorFetchSerializerStage, VigorSerializedBody, VigorQueryEntry } from "./serializers"
+
+/** Records a serializer stage's steps and output on the timeline. */
+/** How a retry config object merges into the current one: the algorithm is replaced whole, as `VigorRetry.algorithms()` does. */
+const VigorFetchRetryMergeStrategy = { policy: { algorithms: "replace" } } as const
+type VigorFetchRetryMergeStrategy = typeof VigorFetchRetryMergeStrategy
+
+type VigorFetchSerializeRecord = (stage: VigorFetchSerializerStage, steps: string[], output: unknown) => void
 import { VigorFetchParseSource, VigorFetchTimeline, VigorFetchTimelineSnapshot } from "./timeline"
 import { createVigorTimelineRecorder, markVigorInternal, VigorTimelineOutcome } from "@core/timeline"
-import { VigorApiKeys, VigorApiMap, VigorApiMapSlot, VigorApiRequestIssues, VigorApiRouteOf, VigorApiSuccess, VigorPathList, VigorResolvedMethod, VigorRouteMethod, VigorRoutePath, VigorRoutePathList, VigorRouteParams, VigorRouteWithoutParams, VigorRouteWithParams } from "./api"
+import { VigorApiFlatten, VigorApiKeys, VigorApiMap, VigorApiMapSlot, VigorApiRequestIssues, VigorApiRouteOf, VigorApiSuccess, VigorPathList, VigorResolvedMethod, VigorRouteMethod, VigorRoutePath, VigorRoutePathList, VigorRouteParams, VigorRouteWithoutParams, VigorRouteWithParams } from "./api"
 
 export * from "./policy"
 export * from "./timeline"
@@ -51,7 +59,7 @@ type VigorFetchIsInferred<R> =
 
 /** The success outcomes, `{ status, data }`, the API map gives request `T`. */
 type VigorFetchSuccessOf<T extends VigorFetchSchema<T>> =
-    VigorApiSuccess<T["apiMap"], VigorResolvedMethod<T["policy"]["method"], T["policy"]["body"]>, T["policy"]["path"]>
+    VigorApiSuccess<T["apiMap"], VigorResolvedMethod<T["policy"]["method"], T["policy"]["body"]>, VigorPathList<T["policy"]["path"]>, T["policy"]["body"], T["policy"]["query"]>
 
 /**
  * A successful `requestVerbose()` whose result was parsed from a response:
@@ -106,7 +114,7 @@ export type VigorFetchRequestThis<T extends VigorFetchSchema<T>> =
             : VigorApiRequestIssues<
                 T["apiMap"],
                 VigorResolvedMethod<T["policy"]["method"], T["policy"]["body"]>,
-                T["policy"]["path"],
+                VigorPathList<T["policy"]["path"]>,
                 T["policy"]["body"],
                 T["policy"]["query"]
             > extends infer I
@@ -172,14 +180,29 @@ export class VigorFetch<
     public method<const N extends VigorFetchMethodFor<T>>(str: N): VigorFetchNext<T, { policy: { method: N } }> { return this._next({ policy: { method: str } } as const) }
     /** Sets the request origin, either an absolute URL or a path relative to the current page. */
     public origin<const N extends string>(str: N): VigorFetchNext<T, { policy: { origin: N } }> { return this._next({ policy: { origin: str } } as const) }
-    /** Appends path segments to the request URL. */
-    public path<const N extends VigorStringable[]>(...strs: N): VigorFetchNext<T, { policy: { path: VigorPathList<N> } }> {
-        // Typed as the per-argument string list (`VigorPathList<N>`), which is what `_stringifyList` produces.
-        return this._next({ policy: { path: this._stringifyList(strs) } } as const) as any
+    /**
+     * Sets path values. They're stored as given; the `path` serializer
+     * turns them into URL segments when the request is sent.
+     *
+     * @param mode - `"append"` adds them after the values set so far.
+     *  `"replace"` discards those and keeps only these.
+     */
+    public path<const N extends VigorStringable[]>(mode: "append", ...values: N): VigorFetchNext<T, { policy: { path: N } }>
+    public path<const N extends VigorStringable[]>(mode: "replace", ...values: N): VigorFetchNext<T, { policy: { path: N } }, { policy: { path: "replace" } }>
+    public path(mode: "append" | "replace", ...values: VigorStringable[]): any {
+        return this._next({ policy: { path: values } } as const, mode === "replace" ? { policy: { path: "replace" } } as const : undefined)
     }
-    /** Adds query-string parameter objects to the request URL. */
-    public query<const N extends VigorFetchPolicySchema<any>["query"][number]>(...objs: N[]): VigorFetchNext<T, { policy: { query: N[] } }> {
-        return this._next({ policy: { query: objs } } as const)
+    /**
+     * Sets query parameter objects. They're stored as given; the `query`
+     * serializer turns them into the query string when the request is sent.
+     *
+     * @param mode - `"append"` adds them after the objects set so far.
+     *  `"replace"` discards those and keeps only these.
+     */
+    public query<const N extends VigorFetchPolicySchema<any>["query"][number]>(mode: "append", ...objs: N[]): VigorFetchNext<T, { policy: { query: N[] } }>
+    public query<const N extends VigorFetchPolicySchema<any>["query"][number]>(mode: "replace", ...objs: N[]): VigorFetchNext<T, { policy: { query: N[] } }, { policy: { query: "replace" } }>
+    public query(mode: "append" | "replace", ...objs: VigorFetchPolicySchema<any>["query"]): any {
+        return this._next({ policy: { query: objs } } as const, mode === "replace" ? { policy: { query: "replace" } } as const : undefined)
     }
     /** Sets the URL fragment ("hash"), replacing any previous value. */
     public hash<const N extends string>(str: N): VigorFetchNext<T, { policy: { hash: N } }, { policy: { hash: "replace" } }> { return this._next({ policy: { hash: str } } as const, { policy: { hash: "replace" } }) }
@@ -187,29 +210,29 @@ export class VigorFetch<
     /**
      * Sets request headers.
      *
-     * @param mode - `"overwrite"` discards all previously configured headers
+     * @param mode - `"replace"` discards all previously configured headers
      *  and keeps only the ones passed here. `"merge"` behaves like
      *  `Object.assign`, overwriting only the keys that overlap and keeping
      *  the rest.
      */
-    public headers<const N extends Record<string, string>>(mode: "overwrite", obj: N): VigorFetchNext<T, { policy: { headers: N } }, { policy: { headers: "replace" } }>
+    public headers<const N extends Record<string, string>>(mode: "replace", obj: N): VigorFetchNext<T, { policy: { headers: N } }, { policy: { headers: "replace" } }>
     public headers<const N extends Record<string, string>>(mode: "merge", obj: N): VigorFetchNext<T, { policy: { headers: N } }>
-    public headers(mode: "overwrite" | "merge", obj: Record<string, string>): any {
-        if (mode === "overwrite") return this._next({ policy: { headers: obj } } as const, { policy: { headers: "replace" } })
+    public headers(mode: "replace" | "merge", obj: Record<string, string>): any {
+        if (mode === "replace") return this._next({ policy: { headers: obj } } as const, { policy: { headers: "replace" } })
         return this._next({ policy: { headers: obj } } as const)
     }
     /**
      * Sets the request body.
      *
-     * @param mode - `"overwrite"` discards the previous body and fully
+     * @param mode - `"replace"` discards the previous body and fully
      *  replaces it with this value. `"merge"` shallow-merges (via
      *  `Object.assign`) when both the previous and new body are plain
      *  objects; for any other body type (string/Blob/FormData/etc) it is
      *  simply replaced.
      */
-    public body<const N extends VigorFetchBodyFor<T>>(mode: "overwrite", obj: N): VigorFetchNext<T, { policy: { body: N } }, { policy: { body: "replace" } }>
+    public body<const N extends VigorFetchBodyFor<T>>(mode: "replace", obj: N): VigorFetchNext<T, { policy: { body: N } }, { policy: { body: "replace" } }>
     public body<const N extends VigorFetchBodyFor<T>>(mode: "merge", obj: N): VigorFetchNext<T, { policy: { body: VigorFetchShallowMerge<T["policy"]["body"], N> } }, { policy: { body: "replace" } }>
-    public body(mode: "overwrite" | "merge", obj: BodyInit | object | null): any {
+    public body(mode: "replace" | "merge", obj: BodyInit | object | null): any {
         const prev: unknown = this.config.policy.body
         const body = (mode === "merge" && this._isPlainObject(prev) && this._isPlainObject(obj)
             ? { ...prev, ...(obj as Record<string, unknown>) }
@@ -221,17 +244,31 @@ export class VigorFetch<
      * (e.g. `credentials`, `mode`, `cache`, `redirect`, `referrer`,
      * `referrerPolicy`, `keepalive`, `integrity`).
      *
-     * @param mode - `"overwrite"` discards all previously configured options
+     * @param mode - `"replace"` discards all previously configured options
      *  and replaces them with this value. `"merge"` shallow-merges this
      *  value onto the previous options.
      */
-    public options<const N extends VigorFetchPolicySchema<any>["extra"]>(mode: "overwrite", obj: N): VigorFetchNext<T, { policy: { extra: N } }, { policy: { extra: "replace" } }>
+    public options<const N extends VigorFetchPolicySchema<any>["extra"]>(mode: "replace", obj: N): VigorFetchNext<T, { policy: { extra: N } }, { policy: { extra: "replace" } }>
     public options<const N extends VigorFetchPolicySchema<any>["extra"]>(mode: "merge", obj: N): VigorFetchNext<T, { policy: { extra: VigorSimplify<Omit<T["policy"]["extra"], keyof N> & N> } }, { policy: { extra: "replace" } }>
-    public options(mode: "overwrite" | "merge", obj: VigorFetchPolicySchema<any>["extra"]): any {
+    public options(mode: "replace" | "merge", obj: VigorFetchPolicySchema<any>["extra"]): any {
         const extra = mode === "merge" ? { ...this.config.policy.extra, ...obj } : obj
         return this._next({ policy: { extra } } as const, { policy: { extra: "replace" } })
     }
 
+    /**
+     * Sets serializer stages: how the stored `path`, `query`, `hash`,
+     * `headers` and `body` become what is sent. Each stage you set replaces
+     * that stage's whole step list (its callback starts from an empty
+     * chain); stages you don't set are kept. The defaults are
+     * `VigorFetchSerializersBase`.
+     */
+    public serializers(input: ((s: VigorFetchPolicySerializers) => VigorFetchPolicySerializers) | VigorFetchPolicySerializers | Partial<VigorFetchSerializersSchema>): VigorApply<VigorFetchTypeLambda, T> {
+        const stages = typeof input === "function"
+            ? input(new VigorFetchPolicySerializers()).stages
+            : input instanceof VigorFetchPolicySerializers ? input.stages : input
+        const replace = { path: "replace", query: "replace", url: "replace", body: "replace", headers: "replace" } as const
+        return this._next({ policy: { serializers: stages } } as any, { policy: { serializers: replace } } as any) as any
+    }
     /** Configures the fetch policy's general settings. */
     public settings<
         const N extends VigorDeepPartial<VigorFetchPolicySettingsSchema<T>>
@@ -285,65 +322,67 @@ export class VigorFetch<
         return this._next({ policy: { middlewares: input } } as const)
     }
     /**
-     * Configures the retry engine used to send the underlying request. This
-     * replaces the previous engine config; a config object is applied on
-     * top of the retry defaults.
+     * Configures the retry engine used to send the underlying request,
+     * starting from its current config (the retry defaults until set):
+     * - a callback gets a `VigorRetry` holding the current config, so what it
+     *   sets is merged in by the retry builder's own rules;
+     * - a config object is merged into the current config (`algorithms`
+     *   replaces, like `VigorRetry.algorithms()`);
+     * - a `VigorRetry` instance is a complete engine and replaces the current one.
      */
     public retry<
         const N extends VigorDeepPartial<VigorRetrySchema<any>>
-    >(input: N & VigorNoExtraKeys<N, VigorDeepPartial<VigorRetrySchema<any>>>): VigorFetchNext<T, { policy: { retry: VigorDeepMerge<typeof VigorRetryBase, N> } }, { policy: { retry: "replace" } }>
+    >(input: N & VigorNoExtraKeys<N, VigorDeepPartial<VigorRetrySchema<any>>>): VigorFetchNext<T, { policy: { retry: N } }, { policy: { retry: VigorFetchRetryMergeStrategy } }>
     public retry<
         const B extends VigorRetry<any>
-    >(input: (r: VigorRetry) => B): VigorFetchNext<T, { policy: { retry: B["config"] } }, { policy: { retry: "replace" } }>
+    >(input: (r: VigorRetry<T["policy"]["retry"]>) => B): VigorFetchNext<T, { policy: { retry: B["config"] } }, { policy: { retry: "replace" } }>
     public retry<
         const R extends VigorRetrySchema<any>
     >(input: VigorRetry<R>): VigorFetchNext<T, { policy: { retry: R } }, { policy: { retry: "replace" } }>
     public retry(input: any): any {
-        if (typeof input === 'function' || input instanceof VigorRetry) {
-            const result = typeof input === 'function'
-                ? input(new VigorRetry())
-                : input
+        if (input instanceof VigorRetry) {
+            return this._next({ policy: { retry: input.config } } as const, { policy: { retry: "replace" } })
+        }
+        if (typeof input === 'function') {
+            const result = input(new VigorRetry(this.config.policy.retry))
             return this._next({ policy: { retry: result.config } } as const, { policy: { retry: "replace" } })
         }
-        // Filled in from the defaults, so the engine config is always complete.
-        return this._next({ policy: { retry: this._merge(VigorRetryBase, input) } } as const, { policy: { retry: "replace" } })
+        return this._next({ policy: { retry: input } } as const, { policy: { retry: VigorFetchRetryMergeStrategy } })
     }
     /**
-     * Configures the parse engine used to interpret the response. This
-     * replaces the previous engine config; a config object is applied on
-     * top of the parse defaults. Its result type (including `.cast<T>()`,
-     * `raw`, and its middlewares) becomes this request's result type.
+     * Configures the parse engine used to interpret the response, starting
+     * from its current config (the parse defaults until set):
+     * - a callback gets a `VigorParse` holding the current config, so what it
+     *   sets is merged in by the parse builder's own rules;
+     * - a config object is merged into the current config;
+     * - a `VigorParse` instance is a complete engine and replaces the current one.
+     *
+     * Its result type (including `.cast<T>()`, `raw`, and its middlewares)
+     * becomes this request's result type.
      */
     public parse<
         const N extends VigorDeepPartial<VigorParseSchema<any>>
-    >(input: N & VigorNoExtraKeys<N, VigorDeepPartial<VigorParseSchema<any>>>): VigorFetchNext<T, { policy: { parse: VigorDeepMerge<typeof VigorParseBase, N> } }, { policy: { parse: "replace" } }>
+    >(input: N & VigorNoExtraKeys<N, VigorDeepPartial<VigorParseSchema<any>>>): VigorFetchNext<T, { policy: { parse: N } }>
     public parse<
         const B extends VigorParse<any>
-    >(input: (p: VigorParse) => B): VigorFetchNext<T, { policy: { parse: B["config"] } }, { policy: { parse: "replace" } }>
+    >(input: (p: VigorParse<T["policy"]["parse"]>) => B): VigorFetchNext<T, { policy: { parse: B["config"] } }, { policy: { parse: "replace" } }>
     public parse<
         const R extends VigorParseSchema<any>
     >(input: VigorParse<R>): VigorFetchNext<T, { policy: { parse: R } }, { policy: { parse: "replace" } }>
     public parse(input: any): any {
-        if (typeof input === 'function' || input instanceof VigorParse) {
-            const result = typeof input === 'function'
-                ? input(new VigorParse())
-                : input
+        if (input instanceof VigorParse) {
+            return this._next({ policy: { parse: input.config } } as const, { policy: { parse: "replace" } })
+        }
+        if (typeof input === 'function') {
+            const result = input(new VigorParse(this.config.policy.parse))
             return this._next({ policy: { parse: result.config } } as const, { policy: { parse: "replace" } })
         }
-        // Filled in from the defaults, so the engine config is always complete.
-        return this._next({ policy: { parse: this._merge(VigorParseBase, input) } } as const, { policy: { parse: "replace" } })
+        return this._next({ policy: { parse: input } } as const)
     }
 
     /** Whether `v` is a plain object literal (not an array, `FormData`, `Blob`, ...). */
     protected _isPlainObject(v: unknown): v is Record<string, unknown> {
         return v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype
-    }
-
-    /** Converts a list of stringable values into strings, dropping `null`/`undefined` entries. */
-    protected _stringifyList(unkList: VigorStringable[]): string[] {
-        return unkList
-            .filter(unk => unk !== null && unk !== undefined)
-            .map(unk => unk instanceof Date ? unk.toISOString() : String(unk))
     }
 
     /**
@@ -359,90 +398,91 @@ export class VigorFetch<
         return undefined
     }
 
-    /**
-     * Builds the final request URL from the configured origin, path
-     * segments, query parameters, and hash. An absolute `origin` ignores
-     * the resolved base (per the `URL` spec); a relative `origin` is
-     * resolved against it. Throws `INVALID_PROTOCOL` (with `context`) if
-     * neither is possible, and with `settings.confinePath` on, `PATH_ESCAPED`
-     * if the result leaves the origin's domain or path.
-     */
-    protected _buildUrl(
-        origin: string,
-        path: string[],
-        query: VigorFetchPolicySchema<any>["query"],
-        hash: string,
-        context: VigorFetchContextSchema<any>
-    ): string {
+    /** Resolves `origin` against the page (in a browser). Throws `INVALID_PROTOCOL` (with `context`) when it can't be. */
+    protected _resolveOrigin(origin: string, context: VigorFetchContextSchema<any>): URL {
         const base = this._resolveBase()
-
-        let originObj: URL
         try {
-            originObj = new URL(origin, base)
+            return new URL(origin, base)
         } catch {
             throw new VigorFetchError("INVALID_PROTOCOL", {
-                method: "_buildUrl",
+                method: "_resolveOrigin",
                 data: { origin, base },
                 context
             })
         }
+    }
 
-        const baseStr = originObj.origin
-        const pathParts = [originObj.pathname.replace(/^\/+|\/+$/g, '')]
-        // `/` inside a segment still separates path levels, but every other
-        // reserved character (`?`, `#`, `%`, spaces, ...) is percent-encoded so a
-        // segment can never leak into the query or fragment.
-        for (const p of path) {
-            for (const part of p.split('/')) pathParts.push(encodeURIComponent(part))
-        }
-        const pathStr = pathParts.filter(Boolean).join('/')
+    /** Runs one serializer stage's steps in order, recording what came out (with `settings.debug`). */
+    protected _runStage<V>(
+        stage: VigorFetchSerializerStage,
+        steps: readonly VigorSerializerStep<(value: any, info: any) => any>[],
+        value: V,
+        info: unknown,
+        record: VigorFetchSerializeRecord
+    ): V {
+        for (const step of steps) value = step.func(value, info) ?? value
+        record(stage, steps.map(s => s.name), value)
+        return value
+    }
 
-        const mainObj = new URL(pathStr, baseStr)
-        const parseVal = (val: VigorStringable): string => val instanceof Date ? val.toISOString() : String(val)
+    /** Fails with `SERIALIZE_FAILED` unless every value is a string, as the URL needs. */
+    protected _requireStrings(stage: VigorFetchSerializerStage, values: unknown[], context: VigorFetchContextSchema<any>): void {
+        const index = values.findIndex(v => typeof v !== "string")
+        if (index !== -1) throw new VigorFetchError("SERIALIZE_FAILED", {
+            method: "_serializeUrl",
+            data: { stage, received: values[index] },
+            context
+        })
+    }
 
-        const queryEntries = [...originObj.searchParams.entries(), ...query.flatMap(q => Object.entries(q))]
-        for (const [key, val] of queryEntries) {
-            if (val === undefined || val === null) continue
-            if (Array.isArray(val)) {
-                for (const e of val) mainObj.searchParams.append(key, parseVal(e as VigorStringable))
-            } else {
-                mainObj.searchParams.append(key, parseVal(val as VigorStringable))
+    /**
+     * Builds the request URL: the `path` and `query` stages turn the stored
+     * values into strings, which are put on the origin with `.hash()`, and
+     * the `url` stage gets the result. Nothing else is done to it.
+     */
+    protected _serializeUrl(info: VigorSerializeInfo, record: VigorFetchSerializeRecord): string {
+        const { context } = info
+        const serializers = context.policy.serializers
+
+        const segments: unknown[] = this._runStage("path", serializers.path, [...context.policy.path], info, record)
+        this._requireStrings("path", segments, context)
+
+        const entries = this._runStage("query", serializers.query, (context.policy.query as VigorFetchPolicySchema<any>["query"]).flatMap(q => Object.entries(q)) as VigorQueryEntry[], info, record)
+        this._requireStrings("query", entries.flat(), context)
+
+        let url = new URL("/" + segments.join("/"), info.origin.origin)
+        for (const [key, value] of entries) url.searchParams.append(key, value as string)
+        url.hash = context.policy.hash
+        url = this._runStage("url", serializers.url, url, info, record)
+        return url.href
+    }
+
+    /**
+     * Builds the body and headers: the first `body` step that handles the
+     * body gives the `BodyInit` and its content type (none handling it fails
+     * with `INVALID_BODY`), then the `headers` stage gets `.headers()`'s
+     * object and that content type.
+     */
+    protected _serializeBody(info: VigorSerializeInfo, hasBody: boolean, record: VigorFetchSerializeRecord): { body: BodyInit | undefined, headers: Record<string, string> } {
+        const { context } = info
+        const serializers = context.policy.serializers
+        let serialized: VigorSerializedBody | undefined
+        if (hasBody) {
+            const tried: string[] = []
+            for (const step of serializers.body) {
+                tried.push(step.name)
+                serialized = step.func(context.policy.body, info)
+                if (serialized) break
             }
-        }
-        mainObj.hash = hash || originObj.hash
-
-        if (context.policy.settings.confinePath) {
-            // The origin's path is the boundary: `/api/v1` allows `/api/v1` and
-            // `/api/v1/...`, but not `/api/v1x` or anything a `..` climbs to.
-            const basePath = "/" + originObj.pathname.replace(/^\/+|\/+$/g, '')
-            const inside = basePath === "/"
-                || mainObj.pathname === basePath
-                || mainObj.pathname.startsWith(basePath + "/")
-            if (mainObj.origin !== originObj.origin || !inside) throw new VigorFetchError("PATH_ESCAPED", {
-                method: "_buildUrl",
-                data: { url: mainObj.href, base: originObj.origin + (basePath === "/" ? "" : basePath) },
+            record("body", tried, serialized)
+            if (!serialized) throw new VigorFetchError("INVALID_BODY", {
+                method: "_serializeBody",
+                data: { received: context.policy.body },
                 context
             })
         }
-        return mainObj.href
-    }
-
-    /** Infers the `Content-Type` header and serializes `body` into a `BodyInit`. Throws `INVALID_BODY` (with `context`) for anything else. */
-    protected _normalizeBody(body: unknown, context: VigorFetchContextSchema<any>): { headers: Record<string, string>, body: BodyInit | null | undefined } {
-        if (body == null) return { headers: {}, body: body as null | undefined }
-        if (typeof body === "string") return { headers: { "Content-Type": "text/plain;charset=UTF-8" }, body }
-        if (body instanceof Blob) return { headers: body.type ? { "Content-Type": body.type } : {}, body }
-        if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return { headers: { "Content-Type": "application/octet-stream" }, body: body as BodyInit }
-        if (typeof ReadableStream !== "undefined" && body instanceof ReadableStream) return { headers: { "Content-Type": "application/octet-stream" }, body }
-        if (body instanceof URLSearchParams) return { headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body }
-        if (body instanceof FormData) return { headers: {}, body }
-        if (typeof body === "object") return { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-
-        throw new VigorFetchError("INVALID_BODY", {
-            method: "_normalizeBody",
-            data: { received: body },
-            context
-        })
+        const headers = this._runStage("headers", serializers.headers, { ...context.policy.headers }, { ...info, contentType: serialized?.contentType ?? null }, record)
+        return { body: serialized?.body, headers }
     }
 
     /**
@@ -468,17 +508,6 @@ export class VigorFetch<
     protected _browserLocation(): { href: string } | null {
         const win = (globalThis as any).window
         return win?.location?.href !== undefined ? win.location : null
-    }
-
-    /** Assigns `source` headers onto `target`, replacing any existing key that differs only in case. */
-    protected _assignHeaders(target: Record<string, string>, source: Record<string, string>): void {
-        for (const [key, value] of Object.entries(source)) {
-            const lower = key.toLowerCase()
-            for (const existing of Object.keys(target)) {
-                if (existing.toLowerCase() === lower) delete target[existing]
-            }
-            target[key] = value
-        }
     }
 
     /**
@@ -511,24 +540,26 @@ export class VigorFetch<
      */
     /**
      * Attaches a type-level API map: a request whose method and path match a
-     * route resolves to that route's success `responses` (see `VigorApiRoute`
-     * for `responses`/`params`/`query`/`body`). Keys are
-     * `"<METHOD> /<path>"`, where a `:name` segment matches any one segment.
+     * route resolves to that route's success `responses`. Keys are paths
+     * (`"/<path>"`, where a `:name` segment matches any one segment), each
+     * holding `params` and an operation per upper-case method (see
+     * `VigorApiPath` / `VigorApiOperation`); a method may hold a tuple of
+     * operations, overloads picked by the request's `body`/`query`.
      * Routes are relative to the path set so far, so a base path can be set
-     * first: `vigor.fetch(origin).path("v1").apiMap<Api>()`. Purely a type —
+     * first: `vigor.fetch(origin).path("append", "v1").apiMap<Api>()`. Purely a type —
      * nothing changes at runtime. `.cast<T>()` and a `raw` parse still win.
      *
      * @example
      * type Api = {
-     *     "GET /users": { response: User[] }
-     *     "GET /users/:id": { response: User }
+     *     "/users": { GET: { response: User[] } }
+     *     "/users/:id": { GET: { response: User }, DELETE: { response: null } }
      * }
      * const api = vigor.fetch("https://api.example.com").apiMap<Api>()
-     * const user = await api.path("users", id).request() // User
+     * const user = await api.path("append", "users", id).request() // User
      */
-    public apiMap<const M extends VigorApiMap<M>>(): VigorFetchNext<T, { apiMap: VigorApiMapSlot<M, T["policy"]["path"]> }, { apiMap: "replace" }> {
+    public apiMap<const M extends VigorApiMap<M>>(): VigorFetchNext<T, { apiMap: VigorApiMapSlot<VigorApiFlatten<M>, VigorPathList<T["policy"]["path"]>> }, { apiMap: "replace" }> {
         return this._next(
-            { apiMap: VigorCastPlaceholder } as unknown as { apiMap: VigorApiMapSlot<M, T["policy"]["path"]> },
+            { apiMap: VigorCastPlaceholder } as unknown as { apiMap: VigorApiMapSlot<VigorApiFlatten<M>, VigorPathList<T["policy"]["path"]>> },
             { apiMap: "replace" }
         )
     }
@@ -562,7 +593,7 @@ export class VigorFetch<
             })
             return value
         })
-        return (this.method as any)(method).path(...segments)
+        return (this.method as any)(method).path("append", ...segments)
     }
     public cast<const C>(): VigorFetchNext<T, { cast: C }, { cast: "replace" }> {
         return this._next(
@@ -673,23 +704,22 @@ export class VigorFetch<
                 context: ctx
             })
 
-            ctx.href = this._buildUrl(ctx.policy.origin, ctx.policy.path, ctx.policy.query, ctx.policy.hash, ctx)
+            const info: VigorSerializeInfo = { origin: this._resolveOrigin(ctx.policy.origin, ctx), context: ctx }
+            const serialized = (stage: VigorFetchSerializerStage, steps: string[], output: unknown) => add("SERIALIZED", { stage, steps, output })
+
+            ctx.href = this._serializeUrl(info, serialized)
             add("BUILT_URL", { url: ctx.href })
 
             const hasBody = !isVigorEmpty(ctx.policy.body) && ctx.policy.body != null
             const method = isVigorEmpty(ctx.policy.method) ? (hasBody ? "POST" : "GET") : ctx.policy.method
 
+            const { body, headers } = this._serializeBody(info, hasBody, serialized)
             const options: VigorFetchOptions = {
                 ...ctx.policy.extra,
                 method: method as VigorFetchOptions["method"],
-                headers: {}
+                headers
             }
-            if (hasBody) {
-                const normalized = this._normalizeBody(ctx.policy.body, ctx)
-                if (normalized.body !== undefined) options.body = normalized.body
-                Object.assign(options.headers, normalized.headers)
-            }
-            this._assignHeaders(options.headers, ctx.policy.headers)
+            if (body !== undefined) options.body = body
 
             // Exposed before `before` runs, so fluent middlewares can edit
             // `ctx.options` directly; the intercept API writes to the same place.
@@ -726,9 +756,12 @@ export class VigorFetch<
             // With `settings.debug`, the nested engines record their timelines too.
             const nestedDebug = { policy: { settings: { debug: true } } } as const
             const parseEngine = new VigorParse(config.policy.settings.debug ? this._merge(ctx.policy.parse, nestedDebug) : ctx.policy.parse)
+            // Called through a local binding, never as a method of the settings object:
+            // a browser's `fetch` throws "Illegal invocation" when `this` is not the global.
+            const fetcher: VigorFetcher = isVigorEmpty(ctx.policy.settings.fetcher) ? globalThis.fetch : ctx.policy.settings.fetcher
             const retryEngine = new VigorRetry(config.policy.settings.debug ? this._merge(ctx.policy.retry, nestedDebug) : ctx.policy.retry)
                 .target(async (signal) => {
-                    return await fetch(ctx.href, { ...finalOptions, signal } as RequestInit)
+                    return await fetcher(ctx.href, { ...finalOptions, signal } as RequestInit)
                 })
                 .middlewares(m => m
                     .after("intercept", async (rctx, api) => {

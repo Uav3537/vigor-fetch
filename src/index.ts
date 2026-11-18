@@ -25,6 +25,7 @@ export * from '@fetch/settings'
 export * from '@fetch/middlewares'
 export * from '@fetch/error'
 export * from '@fetch/context'
+export * from '@fetch/serializers'
 
 export * from '@all/main'
 export * from '@all/settings'

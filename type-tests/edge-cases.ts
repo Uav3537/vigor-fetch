@@ -219,17 +219,17 @@ const fetch9 = await vigor.fetch("https://x").settings({ default: () => "fb" as 
 export type Fetch9 = Expect<Equal<typeof fetch9, number | "fb">>
 
 // "overwrite"/"replace" apply to the type as they do at runtime; "merge" merges.
-const body1 = vigor.fetch("https://x").body("overwrite", { a: 1 }).body("overwrite", { b: 2 })
+const body1 = vigor.fetch("https://x").body("replace", { a: 1 }).body("replace", { b: 2 })
 export type Body1 = Expect<Equal<typeof body1.config.policy.body, { readonly b: 2 }>>
-const body2 = vigor.fetch("https://x").body("overwrite", { a: 1 }).body("merge", { b: 2 })
+const body2 = vigor.fetch("https://x").body("replace", { a: 1 }).body("merge", { b: 2 })
 export type Body2 = Expect<Equal<typeof body2.config.policy.body, { readonly a: 1, readonly b: 2 }>>
-const body3 = vigor.fetch("https://x").body("overwrite", "text").body("merge", { b: 2 })
+const body3 = vigor.fetch("https://x").body("replace", "text").body("merge", { b: 2 })
 export type Body3 = Expect<Equal<typeof body3.config.policy.body, { readonly b: 2 }>>
-const headers1 = vigor.fetch("https://x").headers("merge", { a: "1" }).headers("overwrite", { b: "2" })
+const headers1 = vigor.fetch("https://x").headers("merge", { a: "1" }).headers("replace", { b: "2" })
 export type Headers1 = Expect<Equal<typeof headers1.config.policy.headers, { readonly b: "2" }>>
 const headers2 = vigor.fetch("https://x").headers("merge", { a: "1" }).headers("merge", { b: "2" })
 export type Headers2 = Expect<Equal<typeof headers2.config.policy.headers, { a: "1", b: "2" }>>
-const options1 = vigor.fetch("https://x").options("merge", { credentials: "include" }).options("overwrite", { cache: "no-store" })
+const options1 = vigor.fetch("https://x").options("merge", { credentials: "include" }).options("replace", { cache: "no-store" })
 export type Options1 = Expect<Equal<typeof options1.config.policy.extra, { readonly cache: "no-store" }>>
 const options2 = vigor.fetch("https://x").options("merge", { credentials: "include" }).options("merge", { cache: "no-store" })
 export type Options2 = Expect<Equal<typeof options2.config.policy.extra, { readonly credentials: "include", readonly cache: "no-store" }>>
@@ -240,10 +240,23 @@ export type Status2 = Expect<Equal<typeof status2.config.policy.settings.unretry
 const status3 = vigor.fetch("https://x").settings(s => s.maxRestarts(1))
 export type Status3 = Expect<Equal<typeof status3.config.policy.settings.unretryStatus["length"], 29>>
 
-// `confinePath` is on by default and can be turned off.
-export type Confine1 = Expect<Equal<ReturnType<typeof vigor.fetch>["config"]["policy"]["settings"]["confinePath"], true>>
-const confineOff = vigor.fetch("https://x").settings(s => s.confinePath(false))
-export type Confine2 = Expect<Equal<typeof confineOff.config.policy.settings.confinePath, false>>
+// `.path()`/`.query()` take an explicit mode: "append" adds to the list, "replace" discards it.
+const pathAppend = vigor.fetch("https://x").path("append", "a", 1).path("append", "b")
+export type PathAppend = Expect<Equal<typeof pathAppend.config.policy.path, ["a", 1, "b"]>>
+const pathReplace = vigor.fetch("https://x").path("append", "a").path("replace", "b", null)
+export type PathReplace = Expect<Equal<typeof pathReplace.config.policy.path, ["b", null]>>
+const queryReplace = vigor.fetch("https://x").query("append", { a: 1 }).query("replace", { b: 2 })
+export type QueryReplace = Expect<Equal<typeof queryReplace.config.policy.query, { readonly b: 2 }[]>>
+// @ts-expect-error  the mode is required
+vigor.fetch("https://x").path("a")
+
+// Serializer stages: confining the path is a `url` step, so dropping it turns the check off.
+const confineOff = vigor.fetch("https://x").serializers(s => s.url(u => u.hashFromOrigin()))
+export type ConfineOff = Expect<Equal<typeof confineOff, ReturnType<typeof vigor.fetch<"https://x">>>>
+vigor.fetch("https://x").serializers(s => s.query(q => q.dropNullish().arrays("comma").stringify()).headers(h => h.contentType()))
+vigor.fetch("https://x").serializers({ path: [{ name: "upper", func: segs => segs.map(s => String(s).toUpperCase()) }] })
+// @ts-expect-error  a step function must match its stage
+vigor.fetch("https://x").serializers(s => s.url(u => u.custom("bad", (url: string) => url)))
 export function confineError(e: unknown) {
     if (isVigorFetchError(e, "PATH_ESCAPED")) {
         const url: string = e.data.url
@@ -256,21 +269,21 @@ export function confineError(e: unknown) {
 // @ts-expect-error
 vigor.fetch("https://x").method("get")
 // @ts-expect-error
-vigor.fetch("https://x").path({})
+vigor.fetch("https://x").path("append", {})
 // @ts-expect-error
-vigor.fetch("https://x").query({ a: { b: 1 } })
+vigor.fetch("https://x").query("append", { a: { b: 1 } })
 // @ts-expect-error
 vigor.fetch("https://x").headers("merge", { a: 1 })
 // @ts-expect-error
-vigor.fetch("https://x").body("overwrite", 123)
+vigor.fetch("https://x").body("replace", 123)
 // A GET/HEAD request can't carry a body (runtime: BODY_NOT_ALLOWED), in either order.
 // @ts-expect-error
-vigor.fetch("https://x").method("GET").body("overwrite", { a: 1 })
+vigor.fetch("https://x").method("GET").body("replace", { a: 1 })
 // @ts-expect-error
-vigor.fetch("https://x").body("overwrite", { a: 1 }).method("HEAD")
-vigor.fetch("https://x").method("GET").body("overwrite", null)
-vigor.fetch("https://x").body("overwrite", { a: 1 }).body("overwrite", null).method("GET")
-vigor.fetch("https://x").body("overwrite", { a: 1 }).method("PUT")
+vigor.fetch("https://x").body("replace", { a: 1 }).method("HEAD")
+vigor.fetch("https://x").method("GET").body("replace", null)
+vigor.fetch("https://x").body("replace", { a: 1 }).body("replace", null).method("GET")
+vigor.fetch("https://x").body("replace", { a: 1 }).method("PUT")
 
 // ============================================================================
 // all
@@ -314,24 +327,24 @@ export type All7 = Expect<Equal<typeof all7, 1 | 0>>
 // ============================================================================
 
 const longFetch = vigor.fetch("https://x")
-    .path("1").path("2").path("3").path("4").path("5").path("6")
-    .query({ a: 1 }).query({ b: 2 }).query({ c: 3 }).query({ d: 4 })
+    .path("append", "1").path("append", "2").path("append", "3").path("append", "4").path("append", "5").path("append", "6")
+    .query("append", { a: 1 }).query("append", { b: 2 }).query("append", { c: 3 }).query("append", { d: 4 })
     .headers("merge", { a: "1" }).headers("merge", { b: "2" }).headers("merge", { c: "3" })
     .hash("a").hash("b").method("PUT").method("POST").origin("https://y")
     .cast<{ ok: true }>()
 const longFetchResult = await longFetch.request()
 export type Long1 = Expect<Equal<typeof longFetchResult, { ok: true }>>
 const longMixed = vigor.fetch("https://x")
-    .path("a").query({ q: 1 }).headers("merge", { h: "v" }).body("overwrite", { a: 1 })
-    .path("a").query({ q: 1 }).headers("merge", { h: "v" }).body("overwrite", { a: 1 })
-    .path("a").query({ q: 1 }).headers("merge", { h: "v" }).body("overwrite", { a: 1 })
-    .path("a").query({ q: 1 }).headers("merge", { h: "v" }).body("overwrite", { a: 1 })
-    .path("a").query({ q: 1 }).headers("merge", { h: "v" }).body("overwrite", { a: 1 })
-    .path("a").query({ q: 1 }).headers("merge", { h: "v" }).body("overwrite", { a: 1 })
-    .path("a").query({ q: 1 }).headers("merge", { h: "v" }).body("overwrite", { a: 1 })
-    .path("a").query({ q: 1 }).headers("merge", { h: "v" }).body("overwrite", { a: 1 })
-    .path("a").query({ q: 1 }).headers("merge", { h: "v" }).body("overwrite", { a: 1 })
-    .path("a").query({ q: 1 }).headers("merge", { h: "v" }).body("overwrite", { a: 1 })
+    .path("append", "a").query("append", { q: 1 }).headers("merge", { h: "v" }).body("replace", { a: 1 })
+    .path("append", "a").query("append", { q: 1 }).headers("merge", { h: "v" }).body("replace", { a: 1 })
+    .path("append", "a").query("append", { q: 1 }).headers("merge", { h: "v" }).body("replace", { a: 1 })
+    .path("append", "a").query("append", { q: 1 }).headers("merge", { h: "v" }).body("replace", { a: 1 })
+    .path("append", "a").query("append", { q: 1 }).headers("merge", { h: "v" }).body("replace", { a: 1 })
+    .path("append", "a").query("append", { q: 1 }).headers("merge", { h: "v" }).body("replace", { a: 1 })
+    .path("append", "a").query("append", { q: 1 }).headers("merge", { h: "v" }).body("replace", { a: 1 })
+    .path("append", "a").query("append", { q: 1 }).headers("merge", { h: "v" }).body("replace", { a: 1 })
+    .path("append", "a").query("append", { q: 1 }).headers("merge", { h: "v" }).body("replace", { a: 1 })
+    .path("append", "a").query("append", { q: 1 }).headers("merge", { h: "v" }).body("replace", { a: 1 })
 const longMixedResult = await longMixed.cast<1>().request()
 export type Long3 = Expect<Equal<typeof longMixedResult, 1>>
 const longRetry = vigor.retry(async () => 1 as const)
@@ -374,10 +387,10 @@ export async function errorNarrowing() {
 
     // Every fetch code survives the guard on a configured fetch — including
     // the nested retry/parse engines' codes, which fetch reports as its own.
-    const f = await vigor.fetch("https://x").path("a").requestVerbose()
+    const f = await vigor.fetch("https://x").path("append", "a").requestVerbose()
     if (!f.success && isVigorFetchError(f.error)) {
         const codes: Expect<Equal<typeof f.error.code,
-            | "VALUE_REQUIRED" | "RESTART_EXHAUSTED" | "INVALID_BODY" | "BODY_NOT_ALLOWED" | "INVALID_PROTOCOL" | "FETCH_FAILED" | "REDIRECTED" | "PATH_ESCAPED"
+            | "VALUE_REQUIRED" | "RESTART_EXHAUSTED" | "INVALID_BODY" | "BODY_NOT_ALLOWED" | "INVALID_PROTOCOL" | "FETCH_FAILED" | "REDIRECTED" | "PATH_ESCAPED" | "SERIALIZE_FAILED"
             | "RETRY_EXHAUSTED" | "TIMED_OUT"
             | "INVALID_CONTENT_TYPE" | "PARSER_NOT_FOUND" | "PARSER_ALL_FAILED"
         >> = true
@@ -504,7 +517,7 @@ export async function guardCodes(thrown: unknown) {
 // ============================================================================
 
 export async function typedContexts() {
-    const fetchReq = vigor.fetch("https://api.example.com").path("users").headers("merge", { auth: "t" })
+    const fetchReq = vigor.fetch("https://api.example.com").path("append", "users").headers("merge", { auth: "t" })
     const f = await fetchReq.requestVerbose()
     if (!f.success && isVigorFetchError(f.error, "FETCH_FAILED")) {
         const origin: Expect<Equal<typeof f.error.context.policy.origin, "https://api.example.com">> = true
@@ -709,4 +722,15 @@ export async function guardCallbacks(thrown: unknown) {
             const same: Expect<Equal<typeof inner, Extract<typeof f.error, { code: "FETCH_FAILED" }>>> = true
         }
     })
+}
+
+
+// ── settings.fetcher: any function with the native fetch signature ──
+{
+    vigor.fetch("https://a.b").settings(s => s.fetcher(fetch))
+    vigor.fetch("https://a.b").settings({ fetcher: async (input: string, init: RequestInit) => new Response(input + String(init.method)) })
+    // @ts-expect-error  must resolve to a Response
+    vigor.fetch("https://a.b").settings(s => s.fetcher(async () => "not a response"))
+    // @ts-expect-error  must resolve to a Response
+    vigor.fetch("https://a.b").settings({ fetcher: async () => 1 })
 }

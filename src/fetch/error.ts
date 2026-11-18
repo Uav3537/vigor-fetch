@@ -3,12 +3,13 @@ import { VigorRetryError, VigorRetryErrorMessageFuncs } from "@retry/error";
 import { VigorParseError, VigorParseErrorMessageFuncs } from "@parse/error";
 import { VigorFetchSchema } from "./main";
 import type { VigorFetchContextSchema } from "./context";
-import type { VigorApiFailure, VigorResolvedMethod } from "./api";
+import type { VigorApiFailure, VigorPathList, VigorResolvedMethod } from "./api";
 
 export const VigorFetchErrorMessageFuncs = {
     ...VigorRetryErrorMessageFuncs,
     ...VigorParseErrorMessageFuncs,
     VALUE_REQUIRED: ({ key }: { key: string }) => `Value Required (missing ${key})`,
+    SERIALIZE_FAILED: ({ stage, received }: { stage: string, received: unknown }) => `The "${stage}" serializer left a non-string value (${typeof received}): its last step must produce strings`,
     INVALID_BODY: ({ received }: { received: unknown }) => `Invalid Body type: ${typeof received}`,
     BODY_NOT_ALLOWED: ({ method }: { method: string }) => `A ${method} request cannot have a body`,
     INVALID_PROTOCOL: ({ origin, base }: { origin: string, base: string | undefined }) => base
@@ -16,7 +17,7 @@ export const VigorFetchErrorMessageFuncs = {
         : `Invalid URL: "${origin}" is not an absolute URL, and no base (window.location) is available to resolve it against — pass an absolute origin (e.g. "https://api.example.com") when running outside a browser`,
     FETCH_FAILED: ({ status, statusText }: { status: number, statusText: string, response: Response, url: string, parsed: unknown }) => `Fetch Failed: ${status} ${statusText}`,
     RESTART_EXHAUSTED: ({ maxAttempts }: { maxAttempts: number, error: unknown }) => `Restart exhausted, (max ${maxAttempts})`,
-    PATH_ESCAPED: ({ url, base }: { url: string, base: string }) => `Path escapes "${base}": the request would go to "${url}" (settings.confinePath)`,
+    PATH_ESCAPED: ({ url, base }: { url: string, base: string }) => `Path escapes "${base}": the request would go to "${url}" (serializers.url confine)`,
     REDIRECTED: ({ url, status }: { url: string, status: number, response: Response }) => `Redirected (${status}) to "${url}" — navigating away`,
 } as const
 
@@ -56,7 +57,7 @@ export type VigorFetchFailedData<T extends VigorFetchSchema<any>> =
         ? VigorFetchFailedDataBase
         : T["policy"]["parse"]["policy"]["settings"]["raw"] extends true
             ? VigorFetchFailedDataBase
-            : VigorApiFailure<T["apiMap"], VigorResolvedMethod<T["policy"]["method"], T["policy"]["body"]>, T["policy"]["path"]> extends infer F
+            : VigorApiFailure<T["apiMap"], VigorResolvedMethod<T["policy"]["method"], T["policy"]["body"]>, VigorPathList<T["policy"]["path"]>, T["policy"]["body"], T["policy"]["query"]> extends infer F
                 ? F extends { status: infer S, parsed: infer P }
                     ? { status: S, statusText: string, response: Response, url: string, parsed: P }
                     : never

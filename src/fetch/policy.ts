@@ -5,6 +5,7 @@ import { VigorFetchPolicyMiddlewaresBase, VigorFetchPolicyMiddlewaresSchema } fr
 import { VigorRetryBase, VigorRetrySchema } from "@retry/main"
 import { VigorParseBase, VigorParseSchema } from "@parse/main"
 import type { VigorFetchSchema } from "./main"
+import { VigorFetchSerializersBase, VigorFetchSerializersSchema } from "./serializers"
 
 export type VigorStringable = string | number | boolean | null | undefined | Date
 
@@ -15,12 +16,14 @@ export type VigorFetchPolicySchema<
 
     method: VigorFetchOptions["method"] | VigorEmptyType
     origin: string | VigorEmptyType
-    path: string[]
+    /** The `.path()` values as given; the `path` serializer turns them into segments. */
+    path: VigorStringable[]
     query: Record<string, VigorStringable | VigorStringable[]>[]
     hash: string
     headers: Record<string, string>
     body: BodyInit | object | null | VigorEmptyType
     extra: VigorFetchExtraOptions
+    serializers: VigorFetchSerializersSchema
     settings: VigorFetchPolicySettingsSchema<T>
     middlewares: VigorFetchPolicyMiddlewaresSchema<T>
     retry: VigorRetrySchema<any>
@@ -38,6 +41,7 @@ export const VigorFetchPolicyBase = {
     headers: {},
     body: VigorEmpty,
     extra: {},
+    serializers: VigorFetchSerializersBase,
     settings: VigorFetchPolicySettingsBase,
     middlewares: VigorFetchPolicyMiddlewaresBase,
     retry: VigorRetryBase,

@@ -6,6 +6,15 @@ import { VigorApply } from "@core/HKT"
 import { VigorFetchPolicySettingsTypeLambda } from "./TL"
 import type { VigorFetchContextSchema } from "./context"
 
+/**
+ * The function that sends each attempt: anything with the native `fetch`
+ * signature (undici's `fetch`, a test double, a wrapper that adds
+ * instrumentation or a proxy). It receives the fully built URL and the
+ * `RequestInit`, including the attempt's `signal`, and must resolve to a
+ * `Response`.
+ */
+export type VigorFetcher = (input: string, init: RequestInit) => Promise<Response>
+
 export type VigorFetchPolicySettingsSchema<
     T extends VigorFetchSchema<T>
 > = {
@@ -31,15 +40,12 @@ export type VigorFetchPolicySettingsSchema<
      * does nothing, exactly like `false` (the default).
      */
     redirect: boolean
-    /**
-     * When `true` (the default), the request URL must stay inside the origin
-     * it was built from: the same domain, and within the origin's path. A
-     * `.path()` segment like `".."` that would climb out of it — e.g. user
-     * input landing in `.path("users", id)` — fails the request with
-     * `PATH_ESCAPED` instead of sending it. `..` that stays inside is fine.
-     */
-    confinePath: boolean
     maxRestarts: number
+    /**
+     * The function that sends each attempt. Unset (the default), the global
+     * `fetch` is used, looked up when the request is sent.
+     */
+    fetcher: VigorFetcher | VigorEmptyType
     default: ((ctx: VigorFetchContextSchema<T>) => any|Promise<any>) | VigorEmptyType
 }
 
@@ -59,8 +65,8 @@ export const VigorFetchPolicySettingsBase = {
     ],
     maxRetryAfter: 5 * 60 * 1000,
     redirect: false,
-    confinePath: true,
     maxRestarts: 3,
+    fetcher: VigorEmpty,
     default: VigorEmpty
 } as const satisfies VigorFetchPolicySettingsSchema<any>
 
@@ -95,20 +101,19 @@ export class VigorFetchPolicySettings<
      * (`window.location.href`). Without `window.location` — e.g. in Node —
      * this behaves like `false`.
      */
-    /**
-     * When enabled (the default), a request whose URL would leave its
-     * origin's domain or path (e.g. through a `".."` path segment) fails with
-     * `PATH_ESCAPED` instead of being sent.
-     */
-    public confinePath<const N extends VigorFetchSchema<any>["policy"]["settings"]["confinePath"]>(bool: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { confinePath: N } } }>> {
-        return this._next({ policy: { settings: { confinePath: bool } } } as const)
-    }
     public redirect<const N extends VigorFetchSchema<any>["policy"]["settings"]["redirect"]>(bool: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { redirect: N } } }>> {
         return this._next({ policy: { settings: { redirect: bool } } } as const)
     }
     /** Sets the maximum number of full restarts allowed. */
     public maxRestarts<const N extends VigorFetchSchema<any>["policy"]["settings"]["maxRestarts"]>(num: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { maxRestarts: N } } }>> {
         return this._next({ policy: { settings: { maxRestarts: num } } } as const)
+    }
+    /**
+     * Sets the function that sends each attempt, in place of the global
+     * `fetch`. It must have the native `fetch` signature; see `VigorFetcher`.
+     */
+    public fetcher<const N extends VigorFetcher>(func: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { fetcher: N } } }>> {
+        return this._next({ policy: { settings: { fetcher: func } } } as const)
     }
     /** Sets the fallback value/factory used when the request ultimately fails. */
     public default<const N extends VigorExcludeEmpty<VigorFetchPolicySettingsSchema<T>["default"]>>(func: N): VigorApply<VigorFetchPolicySettingsTypeLambda, VigorDeepMerge<T, { policy: { settings: { default: N } } }>> {

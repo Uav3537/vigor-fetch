@@ -6,6 +6,7 @@ import { VigorFetch, VigorFetchResult } from "@fetch/main";
 import type { VigorFetchIn } from "@fetch/TL";
 import { VigorFetchPolicySettings } from "@fetch/settings";
 import { VigorFetchPolicyMiddlewares } from "@fetch/middlewares";
+import { VigorFetchPolicySerializers } from "@fetch/serializers";
 import { VigorParse, VigorParseResult } from "@parse/main";
 import type { VigorParseIn } from "@parse/TL";
 import { VigorParsePolicySettings } from "@parse/settings";
@@ -32,7 +33,7 @@ import { isVigorAllError } from "@all/error";
  * can't give you, since `request<R>()`'s `R` is a free override.
  *
  * @example
- * const users = vigor.fetch(origin).path("users").cast<User[]>()
+ * const users = vigor.fetch(origin).path("append", "users").cast<User[]>()
  * type Users = VigorResultOf<typeof users> // User[]
  */
 export type VigorResultOf<B> =
@@ -103,6 +104,7 @@ const vigorBase = {
         fetch: {
             settings:    () => new VigorFetchPolicySettings(),
             middlewares: () => new VigorFetchPolicyMiddlewares(),
+            serializers: () => new VigorFetchPolicySerializers(),
         },
         retry: {
             settings:    () => new VigorRetryPolicySettings(),

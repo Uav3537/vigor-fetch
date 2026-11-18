@@ -6,6 +6,7 @@ import type { VigorParse } from "@parse/main"
 import type { VigorParseTimeline } from "@parse/timeline"
 import type { VigorFetchPolicyMiddlewaresIntercept, VigorFetchPolicyMiddlewaresSchema } from "./middlewares"
 import type { VigorFetchContextSchema } from "./context"
+import type { VigorFetchSerializerStage } from "./serializers"
 
 type VigorFetchTimelineStages = Omit<VigorFetchPolicyMiddlewaresSchema<any>, "__brand">
 
@@ -34,6 +35,16 @@ export type VigorFetchTimelineEvents =
     VigorTimelineProcessEvents<VigorFetchProcessHandler> &
     VigorTimelineMiddlewareEvents<VigorFetchTimelineStages, VigorFetchTimelineApis> &
     VigorTimelineEndEvents & {
+    /**
+     * A serializer stage ran: the names of its steps, in order, and what it
+     * produced. For `body`, `steps` are the ones tried and `output` is the
+     * first match (`undefined` when none matched).
+     */
+    SERIALIZED: {
+        stage: VigorFetchSerializerStage
+        steps: string[]
+        output: unknown
+    }
     BUILT_URL: {
         url: string
     }

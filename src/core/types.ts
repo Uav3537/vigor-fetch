@@ -146,10 +146,13 @@ export type VigorNoExtraKeys<N, Shape> =
         ? unknown
         : unknown extends Shape
             ? unknown
+            // One homomorphic mapped type over `N`, so each key keeps its `?`:
+            // while `N` is still being inferred (an unannotated callback inside the
+            // object defers it), a non-homomorphic one would make every key required.
             : {
-                [K in Exclude<keyof N, VigorKeysOf<Shape>>]: never
-            } & {
-                [K in keyof N & VigorKeysOf<Shape>]: VigorNoExtraKeys<N[K], NonNullable<VigorPropOf<Shape, K>>>
+                [K in keyof N]: K extends VigorKeysOf<Shape>
+                    ? VigorNoExtraKeys<N[K], NonNullable<VigorPropOf<Shape, K>>>
+                    : never
             }
 
 export type VigorReplaceType<

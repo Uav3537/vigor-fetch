@@ -47,8 +47,8 @@ import vigor from "vigor-fetch";
 
 const data = await vigor
   .fetch("https://api.example.com")
-  .path("v1", "users")
-  .query({ page: 1, limit: 10 })
+  .path("append", "v1", "users")
+  .query("append", { page: 1, limit: 10 })
   .request();
 // -> GET https://api.example.com/v1/users?page=1&limit=10
 ```
@@ -115,6 +115,7 @@ Every sub-builder used internally by `.settings()`/`.middlewares()`/etc. is also
 ```ts
 vigor.builders.fetch.settings()      // -> VigorFetchPolicySettings
 vigor.builders.fetch.middlewares()   // -> VigorFetchPolicyMiddlewares
+vigor.builders.fetch.serializers()   // -> VigorFetchPolicySerializers
 
 vigor.builders.retry.settings()      // -> VigorRetryPolicySettings
 vigor.builders.retry.middlewares()   // -> VigorRetryPolicyMiddlewares
@@ -166,39 +167,44 @@ Without a callback the guard only checks the error you pass, as before: it narro
 |---|---|
 | `method(str)` | Forces the HTTP method. Default: `POST` if a body is set, otherwise `GET` |
 | `origin(str)` | Sets the base URL (absolute) or a path relative to the current page |
-| `path(...strs)` | Appends path segments |
-| `query(...objs)` | Adds query-parameter objects (each call appends another object to the list) |
-| `hash(str)` | Sets the URL fragment, replacing any previous value |
-| `headers(mode, obj)` | Sets headers. `mode`: `"overwrite"` (discard previous) or `"merge"` (`Object.assign`-style) |
-| `body(mode, obj)` | Sets the body. `"overwrite"` replaces it entirely; `"merge"` shallow-merges when both old and new body are plain objects, otherwise replaces |
+| `path(mode, ...values)` | Sets path values. `mode`: `"append"` (after the ones set so far) or `"replace"` (discard them) |
+| `query(mode, ...objs)` | Sets query-parameter objects. `mode`: `"append"` or `"replace"` |
+| `hash(str)` | Sets the URL fragment (a single value, so it always replaces) |
+| `headers(mode, obj)` | Sets headers. `mode`: `"replace"` (discard previous) or `"merge"` (`Object.assign`-style) |
+| `body(mode, obj)` | Sets the body. `"replace"` replaces it entirely; `"merge"` shallow-merges when both old and new body are plain objects, otherwise replaces |
 | `options(mode, obj)` | Sets extra native `RequestInit` fields other than `method`/`headers`/`body`/`signal` (e.g. `credentials`, `mode`, `cache`). `"merge"` shallow-merges onto the previous options |
+| `serializers(fn \| config)` | Sets the steps that turn the stored path/query/hash/headers/body into what is sent (see [Serializers](#serializers)) |
 | `settings(fn \| config)` | Configures fetch-level settings (below) |
 | `middlewares(fn \| config)` | Configures the fetch middleware pipeline (below) |
-| `retry(fn \| config \| VigorRetry)` | Configures the **internal retry engine** used to send the request. Replaces the previous engine config; a config object is applied on top of the retry defaults |
-| `parse(fn \| config \| VigorParse)` | Configures the **internal parse engine** used to interpret the request or response. Replaces the previous engine config; a config object is applied on top of the parse defaults. Its result type (`.cast<T>()`, `raw`, middlewares, `default`) becomes the request's result type |
+| `retry(fn \| config \| VigorRetry)` | Configures the **internal retry engine** used to send the request, starting from its current config (the retry defaults until set). A callback gets a `VigorRetry` holding that config and a config object is merged into it, so each call adds to the previous ones (`algorithms` still replaces the algorithm); a `VigorRetry` instance is a complete engine and replaces it |
+| `parse(fn \| config \| VigorParse)` | Configures the **internal parse engine** used to interpret the request or response, merging the same way as `retry()`: a callback or config object adds to the current config, a `VigorParse` instance replaces it. Its result type (`.cast<T>()`, `raw`, middlewares, `default`) becomes the request's result type |
 | `apiMap<M>()` | Attaches a type-level API map: the matched route's `response` becomes the result type (see [apiMap / route](#apimap--route)) |
 | `route(key, params?)` | Sets method and path from an API map route, filling its `:name` segments |
 | `cast<T>()` | Overrides the inferred result type with `T` |
 | `request()` | Executes and returns the parsed result, throwing on failure |
 | `requestVerbose()` | Executes and returns `{ success, data, error }` |
 
-> `path()`, `query()`, `headers()` in merge mode, etc. are all additive per call — chain them incrementally rather than passing everything in one call.
+> Every method that sets a list or an object takes its mode first — `"append"`/`"replace"` for lists (`path`, `query`), `"merge"`/`"replace"` for objects (`headers`, `body`, `options`) — so how a call combines with the previous ones is always written at the call. Single values (`origin`, `method`, `hash`) always replace.
 
 ### origin / path / query / hash
 
 ```ts
 vigor.fetch("https://api.example.com/", "/api")
-  .path("v1", "users")
-  .query({ page: 1 })
+  .path("append", "v1", "users")
+  .query("append", { page: 1 })
   .hash("section-2")
 // -> https://api.example.com/api/v1/users?page=1#section-2
 ```
 
 `origin()` only accepts one argument — pass origin + first path segments as separate calls, or fold extra segments into `path()`.
 
-Path segments are percent-encoded, so values like `"a b"` or `"x?y"` can never leak into the query or fragment. A `/` inside a segment still separates path levels: `.path("v1/users", "a b")` → `/v1/users/a%20b`. Pass segments **unencoded** — an already-encoded `%20` would be encoded again.
+`.path()` and `.query()` store their values as given. Turning them into the URL is done by the `path`, `query` and `url` [serializers](#serializers), and with the default steps:
 
-`.` and `..` segments still work as relative steps, but by default (`settings.confinePath`) never out of the origin: with `vigor.fetch("https://api.example.com/api/v1")`, `.path("users", "..", "posts")` goes to `/api/v1/posts`, while `.path("users", "../../../internal")` — say, a user-supplied id — fails with `VigorFetchError("PATH_ESCAPED")` without sending anything. The origin's path is the boundary (`/api/v1` allows `/api/v1/...`, not `/api/v1x`). `.settings(s => s.confinePath(false))` turns the check off.
+- Path values: `null`/`undefined` are dropped, a `Date` becomes its ISO string, a `/` inside a value separates path levels, and each segment is percent-encoded, so `"a b"` or `"x?y"` can never leak into the query or fragment: `.path("append", "v1/users", "a b")` → `/v1/users/a%20b`. Pass segments **unencoded** — an already-encoded `%20` would be encoded again. The origin's own path goes in front.
+- Query values: the origin's own query goes first, `null`/`undefined` entries are dropped, an array repeats its key (`a=1&a=2`), and a `Date` becomes its ISO string.
+- Without `.hash()`, the origin's fragment is kept.
+
+`.` and `..` segments still work as relative steps, but by default (the `url` stage's `confine` step) never out of the origin: with `vigor.fetch("https://api.example.com/api/v1")`, `.path("append", "users", "..", "posts")` goes to `/api/v1/posts`, while `.path("append", "users", "../../../internal")` — say, a user-supplied id — fails with `VigorFetchError("PATH_ESCAPED")` without sending anything. The origin's path is the boundary (`/api/v1` allows `/api/v1/...`, not `/api/v1x`). Leaving `confine` out of the `url` stage turns the check off: `.serializers(s => s.url(u => u.hashFromOrigin()))`.
 
 ### apiMap / route
 
@@ -206,64 +212,76 @@ Describe your API once as a type, and every request built from it gets its route
 
 ```ts
 type Api = {
-  "GET /users":         { response: User[] }
-  "POST /users":        { response: User }
-  "GET /users/me":      { response: Me }
-  "GET /users/:id":     { response: User }
-  "DELETE /users/:id":  { response: null }
+  "/users": {
+    GET:  { response: User[] }
+    POST: { response: User }
+  }
+  "/users/me": {
+    GET: { response: Me }
+  }
+  "/users/:id": {
+    GET:    { response: User }
+    DELETE: { response: null }
+  }
 }
 
 const api = vigor.fetch("https://api.example.com").apiMap<Api>()
 
-await api.path("users").request()                             // User[]
-await api.path("users", id).request()                         // User
-await api.path("users", "me").request()                       // Me
-await api.path("users").body("overwrite", newUser).request()  // User (POST: a body is set)
-await api.path("users", id).method("DELETE").request()        // null
-await api.path("nope").request()                              // unknown (no route matched)
+await api.path("append", "users").request()                             // User[]
+await api.path("append", "users", id).request()                         // User
+await api.path("append", "users", "me").request()                       // Me
+await api.path("append", "users").body("replace", newUser).request()  // User (POST: a body is set)
+await api.path("append", "users", id).method("DELETE").request()        // null
+await api.path("append", "nope").request()                              // unknown (no route matched)
 
 await api.route("GET /users/:id", { id: 1 }).request()        // User — key autocompletes
 ```
 
-- Keys are `"<METHOD> /<path>"`. A `:name` segment matches any one segment; a static segment needs that exact literal. When several routes match, the most specific wins segment by segment from the left (`/users/me` beats `/users/:id`), like a router.
+- Keys are paths, `"/<path>"`; each holds an operation per upper-case method (`GET`, `POST`, …). A `:name` segment matches any one segment; a static segment needs that exact literal. When several paths match, the most specific wins segment by segment from the left (`/users/me` beats `/users/:id`), like a router.
 - The request's method is the one set with `.method()`, or — as at runtime — `POST` with a body and `GET` without.
-- Path arguments are matched the way the URL is built: `.path("users/1")` is two segments, `null`/`undefined` are dropped, numbers become their digits. A non-literal argument (`id: string`) only matches a `:name` segment.
-- Routes are relative to the path set before `.apiMap()`, so a shared prefix goes first: `vigor.fetch(origin).path("v1").apiMap<Api>()`. The origin's own pathname isn't part of the match.
+- Path arguments are matched the way the URL is built: `.path("append", "users/1")` is two segments, `null`/`undefined` are dropped, numbers become their digits. A non-literal argument (`id: string`) only matches a `:name` segment.
+- Routes are relative to the path set before `.apiMap()`, so a shared prefix goes first: `vigor.fetch(origin).path("append", "v1").apiMap<Api>()`. The origin's own pathname isn't part of the match.
 - No match falls back to the parse engine's type (`unknown` by default). `.cast<T>()` still wins over the map, and a `raw` parse still gives the `Response`.
-- `route(key, params)` sets the method and appends the route's path with `:name` segments filled from `params` (encoded like any path segment). Unknown keys, missing or extra params, and a `GET`/`HEAD` route on a request that already has a body are type errors.
+- `route(key, params)` takes `"<METHOD> /<path>"` keys built from the map, sets the method and appends the route's path with `:name` segments filled from `params` (encoded like any path segment). Unknown keys, missing or extra params, and a `GET`/`HEAD` route on a request that already has a body are type errors.
 - It's purely a type: `apiMap()` changes nothing at runtime, and responses aren't validated.
 
 #### Route descriptions
 
-A route can describe more than its response. Every key is optional:
+A path can hold `params`, shared by all its methods; an operation can hold `request`, `response` and `responses`. Every key is optional:
 
 ```ts
 type Api = {
-  "GET /users/:id": {
-    params:    { id: number }                       // .route()'s param types
-    responses: {
-      200: User
-      304: null
-      404: { error: "not_found" }
-      "4xx": ApiError                                // every other 4xx
-      "5xx": { message: string }
+  "/users/:id": {
+    params: { id: number }                          // .route()'s param types
+    GET: {
+      responses: {
+        200: User
+        304: null
+        404: { error: "not_found" }
+        "4xx": ApiError                              // every other 4xx
+        "5xx": { message: string }
+      }
     }
   }
-  "POST /users": {
-    body:      { name: string }                      // the body the request must carry
-    responses: { 201: User, 422: { fields: Record<string, string> } }
+  "/users": {
+    POST: {
+      request:   { body: { name: string } }          // the body the request must carry
+      responses: { 201: User, 422: { fields: Record<string, string> } }
+    }
   }
-  "GET /search": {
-    query:     { q: string, page?: number }          // what .query() must add up to
-    response:  User[]                                // shorthand for responses: { "2xx": User[] }
+  "/search": {
+    GET: {
+      request:  { query: { q: string, page?: number } }  // what .query() must add up to
+      response: User[]                                   // shorthand for responses: { "2xx": User[] }
+    }
   }
 }
 ```
 
 - **`responses`** maps statuses to the parsed body: an exact status (`404`, or `"404"`) or a whole class (`"2xx"`–`"5xx"`) for its statuses not listed on their own. The **success** statuses — `2xx` and `304`, as at runtime — are what the request resolves to: `request()` gives their union (`User | null` above). The others type [`FETCH_FAILED`](#typed-errors)'s `data.parsed`.
-- **`response`** is shorthand for `responses: { "2xx": ... }`. Undeclared success statuses aren't modeled, so a route that declares none falls back to the parse engine's type.
+- **`response`** is shorthand for `responses: { "2xx": ... }`. Undeclared success statuses aren't modeled, so an operation that declares none falls back to the parse engine's type.
 - **`params`** types `.route()`'s values: `api.route("GET /users/:id", { id: "1" })` is an error above.
-- **`body`** and **`query`** are checked **when the request is sent**, so the order you build it in doesn't matter: `request()`/`requestVerbose()` don't compile when the body doesn't match (or is missing — unless the declared type allows `undefined`), or when the `.query()` objects, added together, miss a key, have an unknown one, or a value of the wrong type. A route without `body`/`query` accepts anything there. The compiler error names the route and the problem:
+- **`request.body`** and **`request.query`** are checked **when the request is sent**, so the order you build it in doesn't matter: `request()`/`requestVerbose()` don't compile when the body doesn't match (or is missing — unless the declared type allows `undefined`), or when the `.query()` objects, added together, miss a key, have an unknown one, or a value of the wrong type. An operation without `body`/`query` accepts anything there. The compiler error names the route and the problem:
 
   ```
   The 'this' context of type 'VigorFetch<...>' is not assignable to method's 'this' of type
@@ -271,6 +289,32 @@ type Api = {
   ```
 
   The check is on `this`, so it's only computed where `request()`/`requestVerbose()` is called. One consequence: calling them on a `VigorFetch<T>` with a still-generic `T` (inside a generic helper) doesn't compile — take a concrete builder, or `VigorFetch<any>`.
+- Keys other than these (an old-style `body` next to `response`, a lower-case `get`, `headers` in `request`) are type errors on `.apiMap<Api>()`.
+
+#### Overloads
+
+When one method answers differently depending on what's sent, give it a tuple of operations:
+
+```ts
+type Api = {
+  "/users/:id": {
+    params: { id: number }
+    GET: [
+      { request: { query: { expand: true } },     response: UserWithPosts },
+      { request: { query?: { expand?: false } },  response: User },
+    ]
+  }
+}
+
+await api.route("GET /users/:id", { id }).query("append", { expand: true }).request()  // UserWithPosts
+await api.route("GET /users/:id", { id }).request()                                    // User
+await api.route("GET /users/:id", { id }).query("append", { expand: flag }).request()  // UserWithPosts | User
+```
+
+- The request's `body` and `query`, as set when it's sent, pick the overload: the **first** one they surely match wins (order them from most to least specific).
+- When none surely matches — a value only known as `boolean` or `"csv" | "json"` — it's the union of every overload the request may match. A value may match when its type overlaps the declared one; a missing required key or an unknown key rules an overload out.
+- A request that may match none doesn't compile (`"the request matches none of the route's overloads"`, with every overload's `request` as `expected`).
+- Failures (`FETCH_FAILED`'s `data.parsed`) follow the picked overload too. `params` stay the path's, shared by every overload.
 
 #### Status and response
 
@@ -290,16 +334,44 @@ if (res.success) {
 - A result recovered from a failure — by `onError`'s `setResult` or `settings.default` — has no response: `status` and `response` are `null` (those members only exist when one of the two is set). On a failure they're `null` too; the failed response is on the error (`FETCH_FAILED`'s `data`).
 - `.cast<T>()` and `requestVerbose<R>()` replace every success's `data`, but keep `status` — and the failure types.
 
+### Serializers
+
+Everything between what you set on the builder and what `fetch` receives is a list of named steps. Nothing outside these steps touches the URL, headers or body.
+
+| Stage | Turns | Default steps |
+|---|---|---|
+| `path` | `.path()` values → string segments | `dropNullish`, `stringify`, `split("/")`, `encode`, `prefixOrigin` |
+| `query` | `.query()` entries → `[string, string]` entries | `fromOrigin`, `dropNullish`, `arrays("repeat")`, `stringify` |
+| `url` | the assembled `URL` → the `URL` sent | `hashFromOrigin`, `confine` |
+| `body` | `.body()` value → `BodyInit` and its content type (the first step that handles it wins) | `text`, `blob`, `binary`, `stream`, `urlencoded`, `formData`, `json` |
+| `headers` | `.headers()` object → the headers sent | `caseInsensitive`, `contentType` |
+
+The URL is the origin + `/` + the `path` segments joined by `/`, with the `query` entries appended and `.hash()` set; the `url` stage gets it after that.
+
+```ts
+vigor.fetch("https://api.example.com")
+  .serializers(s => s
+    .query(q => q.dropNullish().arrays("comma").stringify())      // ids=1,2,3
+    .headers(h => h.caseInsensitive().custom("trace", headers => ({ ...headers, "X-Trace": id }))))
+```
+
+- **A stage you set replaces that stage's whole list**, and its callback starts from an empty chain: the steps you write are exactly the ones that run. The example above drops `fromOrigin` from `query` and `contentType` from `headers`. Stages you don't set keep their defaults (`VigorFetchSerializersBase`).
+- `custom(name, func)` adds your own step to any stage. Steps get the stage's value and `{ origin, context }` (`headers` steps also get the body's `contentType`); `url` steps may change the `URL` in place and return nothing.
+- `path` and `query` must end in strings: a value left otherwise fails with `SERIALIZE_FAILED`. No `body` step handling the body fails with `INVALID_BODY`.
+- The step factories are also exported on their own (`VigorPathSteps`, `VigorQuerySteps`, `VigorUrlSteps`, `VigorBodySteps`, `VigorHeadersSteps`), and the config-object form takes step lists: `.serializers({ url: [VigorUrlSteps.confine()] })`.
+- With `settings.debug`, the timeline gets a `SERIALIZED` entry per stage with its step names and output.
+- `apiMap` routes match the path as the default `path` steps produce it.
+
 ### headers / body / options
 
 ```ts
 vigor.fetch("/api")
   .headers("merge", { Authorization: "Bearer token" })
-  .body("overwrite", { username: "john" })
+  .body("replace", { username: "john" })
   .options("merge", { credentials: "include" })
 ```
 
-Body is auto-normalized based on type (string, `Blob`, `ArrayBuffer`/typed array/`DataView`, `ReadableStream`, `URLSearchParams`, `FormData`, or plain object → JSON), and a matching `Content-Type` header is set automatically unless you've already set one via `.headers()` (header names are compared case-insensitively). `body("overwrite", null)` removes a previously set body. A body on a `GET`/`HEAD` request fails immediately with `VigorFetchError("BODY_NOT_ALLOWED")` instead of being sent — and when the method and body are set through the builder, it's already a type error (`.method("GET").body(...)` or `.body(...).method("GET")`).
+The body is turned into a `BodyInit` by the `body` [serializer](#serializers): with the default steps, a string, `Blob`, `ArrayBuffer`/typed array/`DataView`, `ReadableStream`, `URLSearchParams` and `FormData` are sent as they are, and any other object as JSON. The `headers` serializer then adds the matching `Content-Type` unless `.headers()` set one, and keeps one key per header name regardless of case. `body("replace", null)` removes a previously set body. A body on a `GET`/`HEAD` request fails immediately with `VigorFetchError("BODY_NOT_ALLOWED")` instead of being sent — and when the method and body are set through the builder, it's already a type error (`.method("GET").body(...)` or `.body(...).method("GET")`).
 
 > A `ReadableStream` body can only be sent once, so a request with a stream body is never retried (its first failure is final), and a restarted one will fail — use a replayable body type if you rely on retries.
 
@@ -320,8 +392,8 @@ Body is auto-normalized based on type (string, `Blob`, `ArrayBuffer`/typed array
 | `unretryStatus(...nums)` | HTTP status codes that are never retried, regardless of the retry engine's attempt budget | every `4xx` except `408`, `421`, `423`, `425`, `429`, plus `501`, `505`, `506`, `508`, `510`, `511` (see below) |
 | `maxRetryAfter(num)` | Upper bound (ms) on a server-suggested retry delay from `retryHeaders`; longer values are clamped | `300000` (5 min) |
 | `redirect(bool)` | On a redirected response, navigates the page via `window.location.href` (see below) | `false` |
-| `confinePath(bool)` | Keeps the request URL inside its origin — same domain, within the origin's path; a request that would leave it (e.g. a `".."` segment) fails with `PATH_ESCAPED` before it's sent | `true` |
 | `maxRestarts(num)` | Max number of full pipeline restarts (see `onError` below) | `3` |
+| `fetcher(fn)` | The function that sends each attempt, in place of the global `fetch` (see [Custom fetch](#custom-fetch)) | global `fetch` |
 | `default(fn)` | Fallback value/factory used only if the request ultimately fails and no restart/override happened | throws |
 | `debug(bool)` | Records `requestVerbose()`'s [timeline](#timeline) (the nested retry/parse engines' too) | `false` |
 
@@ -332,6 +404,24 @@ The default `unretryStatus` covers the statuses a retry of the same request can'
 On any non-`unretryStatus` failure response, the internal retry engine retries per its own `settings`/`algorithms` (defaults: 5 attempts, 20s timeout, exponential-ish backoff jitter — see `vigor.retry` below). On a `429` or `503`, Vigor reads `retryHeaders` off the response and uses the first usable value as the next delay automatically. Delta seconds (`Retry-After: 120`), Unix epoch seconds/milliseconds (`X-RateLimit-Reset: 1735689600`), and HTTP dates are all understood. The delay is clamped to `maxRetryAfter`.
 
 The whole response body is read within the attempt, so the retry engine's per-attempt `timeout` also covers a body that stalls mid-transfer, and a body that fails to arrive is retried. (With the parse engine's `raw` setting, the body is left unread for you to stream.)
+
+### Custom fetch
+
+By default every attempt goes through the global `fetch`, looked up when the request is sent. `settings.fetcher` swaps in any function with the native signature, `(input: string, init: RequestInit) => Promise<Response>` (exported as `VigorFetcher`):
+
+```ts
+import { fetch as undiciFetch, ProxyAgent } from "undici"
+
+const proxied = vigor
+  .fetch("https://api.example.com")
+  .settings(s => s.fetcher((input, init) => undiciFetch(input, { ...init, dispatcher: new ProxyAgent(proxyUrl) })))
+```
+
+- It receives the fully built URL and the `RequestInit` after the `before` middlewares ran, with the attempt's `signal` (timeout and external aborts) — honor it, or a timed-out attempt keeps running in the background.
+- Everything around it stays the same: retries, `Retry-After`, parsing and middlewares all work on the `Response` it returns, and what it throws is retried like a network error.
+- It's only type-checked: the signature is enforced at compile time, and the `Response` isn't checked at runtime.
+- It's called as a plain function (`this` is `undefined`), so passing `window.fetch` directly is fine.
+- Builders are immutable, so set it once on a base builder and reuse it: `const api = vigor.fetch(origin).settings({ fetcher })`.
 
 ### redirect
 
@@ -877,7 +967,7 @@ Every other code always has one, so after `isVigorFetchError(e, "FETCH_FAILED")`
 On a `requestVerbose()` error, `context` is typed with **that request's own config** — the guards keep it rather than widening to a generic type:
 
 ```ts
-const res = await vigor.fetch("https://api.example.com").path("users").requestVerbose();
+const res = await vigor.fetch("https://api.example.com").path("append", "users").requestVerbose();
 if (!res.success && isVigorFetchError(res.error, "FETCH_FAILED")) {
   res.error.context.policy.origin;  // "https://api.example.com"
   res.error.context.policy.path;    // ["users"]
@@ -914,7 +1004,7 @@ if (!res.success) {
 With an [API map](#route-descriptions) route that declares failure `responses`, `FETCH_FAILED`'s `data` has one member per status, so narrowing `data.status` narrows `data.parsed` — to the declared body `| undefined`, or `unknown` for a status the route doesn't cover. `RETRY_EXHAUSTED`/`RESTART_EXHAUSTED`'s `data.error` is typed as the same request's errors, so the last attempt's failure stays typed one level down:
 
 ```ts
-const res = await api.route("POST /users").body("overwrite", { name: "a" }).requestVerbose()
+const res = await api.route("POST /users").body("replace", { name: "a" }).requestVerbose()
 if (!res.success) {
   isVigorFetchError(res.error, "FETCH_FAILED", err => {  // unwraps RETRY_EXHAUSTED if needed
     if (err.data.status === 422) {
@@ -932,8 +1022,8 @@ if (!res.success) {
 
 ## TypeScript notes
 
-- Every builder is **immutable** — `.settings(...)`, `.path(...)`, etc. all return a *new* instance with the change merged in; the original is untouched.
-- Array-valued config (`path`, `query`, parse `strategies`, etc.) **concatenates** across calls by default; object-valued config deep-merges. A handful of methods (`hash`, `headers("overwrite", ...)`, `body("overwrite", ...)`, `options("overwrite", ...)`, `retry(...)`, `parse(...)`, `algorithms(...)`, fetch's `retryHeaders`/`unretryStatus`) force a full **replace** instead, since merging wouldn't make sense there. The config's type follows the same rules, so it always matches what's stored at runtime.
+- Every builder is **immutable** — `.settings(...)`, `.path("append", ...)`, etc. all return a *new* instance with the change merged in; the original is untouched.
+- Fetch's request parts take an explicit mode (`path`/`query`: `"append"`/`"replace"`, `headers`/`body`/`options`: `"merge"`/`"replace"`). Elsewhere, array-valued config (parse `strategies`, etc.) **concatenates** across calls by default and object-valued config deep-merges. A handful of methods (`hash`, `serializers(...)` per stage, `retry(VigorRetry)`/`parse(VigorParse)` with an instance, `algorithms(...)`, fetch's `retryHeaders`/`unretryStatus`) force a full **replace** instead, since merging wouldn't make sense there. The config's type follows the same rules, so it always matches what's stored at runtime.
 - Config objects are checked for unknown keys at any depth: `.settings({ maxAttempts: 3, timeot: 5 })` is a type error.
 - To store or pass around a configured builder, type it with `any`: `VigorRetry<any>`, `VigorFetch<any>`, etc. The bare `VigorRetry` is the unconfigured instance's type.
 - To narrow `requestVerbose()`'s `error`, use the `isVigor*Error` guards (or `vigor.guards.*`): they narrow `code` and `data` together. The sentinels `VigorDefault`/`VigorEmpty` (and `isVigorDefault`/`isVigorEmpty`) are exported for checking an unset `ctx.result` in middlewares.

@@ -6,7 +6,11 @@ import type { VigorStringable } from "./policy"
 /** The HTTP methods a route key can start with. */
 export type VigorApiMethod = NonNullable<VigorFetchOptions["method"]>
 
-/** A route key: `"<METHOD> /<path>"`, where a `:name` segment is a path parameter. */
+/**
+ * A route key: `"<METHOD> /<path>"`, where a `:name` segment is a path
+ * parameter. The API map is flattened to these (see {@link VigorApiFlatten}),
+ * and `.route()` takes them.
+ */
 export type VigorApiRouteKey = `${VigorApiMethod} /${string}`
 
 /** A whole status class as a `responses` key: `"4xx"` stands for every `4xx` status not listed on its own. */
@@ -29,56 +33,175 @@ export type VigorHttpFailureStatus = Exclude<VigorHttpStatusOf<"3">, 304> | Vigo
 /** A path parameter's value, as `.route()` takes it. */
 export type VigorApiParamValue = Exclude<VigorStringable, null | undefined>
 
+/** A path key of the API map: `"/<path>"`, where a `:name` segment is a path parameter. */
+export type VigorApiPathKey = `/${string}`
+
+/** A `responses` map: the parsed body per exact status (`200`, `"404"`) or status class (`"4xx"`). */
+export type VigorApiResponses = { [status: number]: unknown } & { [C in VigorApiStatusClass]?: unknown }
+
 /**
- * One route's description. Every key is optional:
+ * What a request to an operation must carry. Both are checked when the
+ * request is sent: `request()` / `requestVerbose()` don't compile on a
+ * request that doesn't match.
  *
+ * - `query` — the query `.query()` must add up to.
+ * - `body` — the body the request must carry (optional when it allows `undefined`).
+ */
+export type VigorApiRequest = {
+    query?: object
+    body?: unknown
+}
+
+/**
+ * One operation: what a method of a path takes and answers with. Every key
+ * is optional:
+ *
+ * - `request` — the {@link VigorApiRequest} it must carry.
  * - `responses` — the parsed body per status: an exact status (`200`,
  *   `404`) or a whole class (`"4xx"`). Success statuses (`2xx`, `304`) are
  *   what the request resolves to; the others type `FETCH_FAILED`'s
  *   `data.parsed`, narrowed by `data.status`.
  * - `response` — shorthand for `responses: { "2xx": ... }`.
- * - `params` — the type of each `:name` segment's value in `.route()`.
- * - `query` — the query `.query()` must add up to.
- * - `body` — the body the request must carry (optional when it allows `undefined`).
- *
- * `query` and `body` are checked when the request is sent: `request()` /
- * `requestVerbose()` don't compile on a request that doesn't match.
+ */
+export type VigorApiOperation = {
+    request?: VigorApiRequest
+    response?: unknown
+    responses?: VigorApiResponses
+}
+
+/**
+ * One path of the API map: `params` (shared by every method of the path)
+ * and an operation per method. A method may also take a tuple of
+ * operations — overloads picked by the request's `body`/`query`, the first
+ * one it surely matches winning.
+ */
+export type VigorApiPath = {
+    params?: { [name: string]: VigorApiParamValue }
+} & {
+    [M in VigorApiMethod]?: VigorApiOperation | readonly [VigorApiOperation, ...VigorApiOperation[]]
+}
+
+/**
+ * One operation as the matcher sees it, flattened from its path and
+ * operation: the path's `params`, the operation's `request` fields and its
+ * responses side by side.
  */
 export type VigorApiRoute = {
     response?: unknown
-    responses?: { [status: number]: unknown } & { [C in VigorApiStatusClass]?: unknown }
+    responses?: VigorApiResponses
     params?: { [name: string]: VigorApiParamValue }
     query?: object
     body?: unknown
 }
 
 /** `responses` keys must be statuses (`404` or `"404"`) or status classes (`"4xx"`). */
-type VigorApiRouteCheck<R> =
-    R extends { responses: infer S }
-        ? VigorApiRoute & { responses: { [K in keyof S]: K extends number | `${number}` | VigorApiStatusClass ? unknown : never } }
-        : VigorApiRoute
+type VigorApiResponsesCheck<S> =
+    S extends object
+        ? { [K in keyof S]: K extends number | `${number}` | VigorApiStatusClass ? unknown : never }
+        : VigorApiResponses
+
+/** A `request` may only hold `query` and `body`. */
+type VigorApiRequestCheck<Q> =
+    Q extends object
+        ? { [K in keyof Q]: K extends "query" ? object | undefined : K extends "body" ? unknown : never }
+        : VigorApiRequest
+
+/** An operation may only hold `request`, `response` and `responses`. */
+type VigorApiOperationCheck<O> =
+    O extends readonly unknown[]
+        ? VigorApiOperation
+        : O extends object
+            ? {
+                [K in keyof O]: K extends "request"
+                    ? VigorApiRequestCheck<O[K]>
+                    : K extends "response"
+                        ? unknown
+                        : K extends "responses"
+                            ? VigorApiResponsesCheck<O[K]>
+                            : never
+            }
+            : VigorApiOperation
+
+/** A method's value: one operation, or a non-empty tuple of them. */
+type VigorApiMethodCheck<X> =
+    X extends readonly unknown[]
+        ? X extends readonly []
+            ? readonly [VigorApiOperation, ...VigorApiOperation[]]
+            : number extends X["length"]
+                // A plain array has no order to pick overloads by.
+                ? readonly [VigorApiOperation, ...VigorApiOperation[]]
+                : { [I in keyof X]: VigorApiOperationCheck<X[I]> }
+        : VigorApiOperationCheck<X>
+
+/** A path may only hold `params` and upper-case methods. */
+type VigorApiPathCheck<P> =
+    P extends object
+        ? {
+            [K in keyof P]: K extends "params"
+                ? { [name: string]: VigorApiParamValue }
+                : K extends VigorApiMethod
+                    ? VigorApiMethodCheck<P[K]>
+                    : never
+        }
+        : VigorApiPath
 
 /**
- * Validates an API map: every key must be a {@link VigorApiRouteKey} and
- * every value a {@link VigorApiRoute}. Used as `M extends VigorApiMap<M>`.
+ * Validates an API map: every key must be a {@link VigorApiPathKey} and
+ * every value a {@link VigorApiPath}. Used as `M extends VigorApiMap<M>`.
  *
  * @example
  * type Api = {
- *     "GET /users": { response: User[], query: { page?: number } }
- *     "GET /users/:id": {
- *         params: { id: number }
- *         responses: { 200: User, 404: { error: "not_found" }, "5xx": { message: string } }
+ *     "/users": {
+ *         GET: { request: { query: { page?: number } }, response: User[] }
+ *         POST: { request: { body: { name: string } }, responses: { 201: User, 422: { fields: Record<string, string> } } }
  *     }
- *     "POST /users": { body: { name: string }, responses: { 201: User, 422: { fields: Record<string, string> } } }
+ *     "/users/:id": {
+ *         params: { id: number }
+ *         GET: { responses: { 200: User, 404: { error: "not_found" }, "5xx": { message: string } } }
+ *         DELETE: { response: null }
+ *     }
  * }
  */
 export type VigorApiMap<M> = {
-    [K in keyof M]: K extends VigorApiRouteKey ? VigorApiRouteCheck<M[K]> : never
+    [K in keyof M]: K extends VigorApiPathKey ? VigorApiPathCheck<M[K]> : never
+}
+
+/** An operation of path `Item` as a {@link VigorApiRoute}. */
+type VigorApiNormalize<Item, O> = VigorSimplify<
+    (Item extends { params: infer P } ? { params: P } : {})
+    & (O extends { request: infer Q } ? Q : {})
+    & Pick<O, keyof O & ("response" | "responses")>
+>
+
+/** A method's value as its list of overloads: one route, or one per tuple entry. */
+type VigorApiVariants<Item, X> =
+    X extends readonly unknown[]
+        ? { -readonly [I in keyof X]: VigorApiNormalize<Item, X[I]> }
+        : [VigorApiNormalize<Item, X>]
+
+/** Every `"<METHOD> /<path>"` key the nested map `M` has. */
+type VigorApiFlatKey<M> = {
+    [P in keyof M & VigorApiPathKey]: `${keyof M[P] & VigorApiMethod} ${P}`
+}[keyof M & VigorApiPathKey]
+
+/**
+ * The nested map `M` flattened to one entry per method and path, keyed
+ * `"<METHOD> /<path>"`, each the list of its overloads as routes.
+ */
+export type VigorApiFlatten<M> = {
+    [K in VigorApiFlatKey<M>]: K extends `${infer Method} ${infer P}`
+        ? P extends keyof M
+            ? Method extends keyof M[P]
+                ? VigorApiVariants<M[P], NonNullable<M[P][Method]>>
+                : never
+            : never
+        : never
 }
 
 /**
- * What `.apiMap<M>()` stores on the schema: the map, and the path segments
- * already set when it was called, which every route is relative to.
+ * What `.apiMap<M>()` stores on the schema: the map, flattened (see
+ * {@link VigorApiFlatten}), and the path segments already set when it was
+ * called, which every route is relative to.
  */
 export type VigorApiMapSlot<M, Base extends readonly string[]> = {
     map: M
@@ -94,7 +217,7 @@ type VigorPathSegment<V> =
             : string
 
 /**
- * The path list `.path(...N)` stores: each argument stringified, with
+ * The path segments `.path(mode, ...N)` values become with the default `path` serializer: each stringified, with
  * `null`/`undefined` dropped like at runtime. An argument that may or may
  * not be dropped makes the length unknown, so the list becomes `string[]`.
  */
@@ -193,8 +316,8 @@ type VigorMostSpecific<C extends VigorRouteCandidate> =
 /** Marks "no route matched", so the caller can fall back to another type. Type-only. */
 export type VigorApiNoMatchType = { readonly __brand: "@vigor-fetch:::Fetch <- ApiNoMatch" }
 
-/** A route the request matched: its key and its description. */
-export type VigorApiMatch<K = string, R = unknown> = { key: K, route: R }
+/** A route the request matched: its key and its overloads (one route each). */
+export type VigorApiMatch<K = string, V extends readonly unknown[] = readonly unknown[]> = { key: K, variants: V }
 
 /** The route `A` matches, per possible `A`. */
 type VigorApiMatchFor<M, Method, A> =
@@ -205,7 +328,9 @@ type VigorApiMatchFor<M, Method, A> =
                 ? VigorApiNoMatchType
                 : VigorMostSpecific<VigorRouteCandidates<M, Method, A>> extends infer K
                     ? K extends keyof M
-                        ? VigorApiMatch<K, M[K]>
+                        ? M[K] extends infer V extends readonly unknown[]
+                            ? VigorApiMatch<K, V>
+                            : VigorApiNoMatchType
                         : VigorApiNoMatchType
                     : never
         : VigorApiNoMatchType
@@ -213,7 +338,7 @@ type VigorApiMatchFor<M, Method, A> =
 /**
  * The route of the API map in `Slot` that a request with `Method` and stored
  * path list `Path` matches, or `VigorApiNoMatchType`. A union path (e.g.
- * `.path(kind)` with `kind: "a" | "b"`) gives a union of matches.
+ * `.path("append", kind)` with `kind: "a" | "b"`) gives a union of matches.
  */
 export type VigorApiMatched<Slot, Method, Path> =
     Slot extends VigorApiMapSlot<infer M, infer Base>
@@ -289,38 +414,46 @@ type VigorApiUnlistedFailure<S> =
         : never
 
 /**
- * The success outcomes, `{ status, data }`, of the route a request matches;
- * `{ status: number, data: VigorApiNoMatchType }` where none does.
+ * The success outcomes, `{ status, data }`, of the route a request matches
+ * (of its overloads, the one(s) {@link VigorApiSelect} picks for `Body` and
+ * `Query`); `{ status: number, data: VigorApiNoMatchType }` where none does.
  */
-export type VigorApiSuccess<Slot, Method, Path> =
+export type VigorApiSuccess<Slot, Method, Path, Body, Query> =
     VigorApiMatched<Slot, Method, Path> extends infer X
-        ? X extends VigorApiMatch<any, infer R>
-            ? VigorApiSuccessOf<VigorApiResponsesOf<R>>
+        ? X extends VigorApiMatch<any, infer V>
+            ? VigorApiSelect<V, Body, Query> extends infer R
+                ? R extends unknown ? VigorApiSuccessOf<VigorApiResponsesOf<R>> : never
+                : never
             : { status: number, data: VigorApiNoMatchType }
         : never
 
 /**
  * The failure outcomes, `{ status, parsed }`, of the route a request
- * matches; `{ status: number, parsed: unknown }` where none does.
+ * matches (of the overload(s) picked, as for {@link VigorApiSuccess});
+ * `{ status: number, parsed: unknown }` where none does.
  */
-export type VigorApiFailure<Slot, Method, Path> =
+export type VigorApiFailure<Slot, Method, Path, Body, Query> =
     VigorApiMatched<Slot, Method, Path> extends infer X
-        ? X extends VigorApiMatch<any, infer R>
-            ? VigorApiFailureOf<VigorApiResponsesOf<R>>
+        ? X extends VigorApiMatch<any, infer V>
+            ? VigorApiSelect<V, Body, Query> extends infer R
+                ? R extends unknown ? VigorApiFailureOf<VigorApiResponsesOf<R>> : never
+                : never
             : { status: number, parsed: unknown }
         : never
 
 /**
- * The response type the API map gives a request with `Method` and stored
- * path list `Path` — the union of its route's success responses — or
- * `VigorApiNoMatchType` when no route matches.
+ * The response type the API map gives a request with `Method`, stored path
+ * list `Path`, `Body` and `Query` — the union of its route's success
+ * responses — or `VigorApiNoMatchType` when no route matches.
  */
-export type VigorApiResponse<Slot, Method, Path> = VigorApiSuccess<Slot, Method, Path>["data"]
+export type VigorApiResponse<Slot, Method, Path, Body, Query> = VigorApiSuccess<Slot, Method, Path, Body, Query>["data"]
 
-/** The route of key `K` in the API map stored in `Slot`, or `{}`. */
+/** The route of key `K` in the API map stored in `Slot` (its first overload: they share `params`), or `{}`. */
 export type VigorApiRouteOf<Slot, K> =
     Slot extends VigorApiMapSlot<infer M, any>
-        ? K extends keyof M ? M[K] : {}
+        ? K extends keyof M
+            ? M[K] extends readonly [infer R, ...any[]] ? R : {}
+            : {}
         : {}
 
 // ----------------------------------------------------------------------------
@@ -370,15 +503,99 @@ type VigorApiQueryIssue<Key, R, Query> =
             : never
         : never
 
+// ----------------------------------------------------------------------------
+// overloads: which of a route's variants a request is for
+// ----------------------------------------------------------------------------
+
+/** The first of overloads `V` that `Body` and `Query` surely match, or `never`. */
+type VigorApiDefinite<V, Body, Query> =
+    V extends readonly [infer R, ...infer Rest]
+        ? [VigorApiBodyIssue<"", R, Body> | VigorApiQueryIssue<"", R, Query>] extends [never]
+            ? R
+            : VigorApiDefinite<Rest, Body, Query>
+        : never
+
+/** Whether `Body` may match route `R`'s body: it may be left out, or the two types overlap. */
+type VigorApiBodyPossible<R, Body> =
+    "body" extends keyof R
+        ? R["body" & keyof R] extends infer B
+            ? [Body] extends [VigorEmptyType | null]
+                ? undefined extends B ? true : null extends B ? true : false
+                : [VigorDeepMutable<Body> & B] extends [never] ? false : true
+            : never
+        : true
+
+/** The keys `D` requires. */
+type VigorApiRequiredKeys<D> = { [K in keyof D]-?: {} extends Pick<D, K> ? never : K }[keyof D]
+
+/**
+ * Whether the stored `.query()` list may match route `R`'s query: no
+ * unknown key, every required key there, and no value whose type can't be
+ * the declared one (`boolean` may be `true`; `"a"` can't be `"b"`).
+ */
+type VigorApiQueryPossible<R, Query> =
+    "query" extends keyof R
+        ? [NonNullable<R["query" & keyof R]>, VigorDeepMutable<VigorQueryOf<Query>>] extends [infer D, infer Q]
+            ? [Exclude<keyof Q, keyof D>] extends [never]
+                ? [Exclude<VigorApiRequiredKeys<D>, keyof Q>] extends [never]
+                    ? true extends {
+                        [K in keyof Q & keyof D]: [Q[K] & D[K]] extends [never] ? true : never
+                    }[keyof Q & keyof D]
+                        ? false
+                        : true
+                    : false
+                : false
+            : never
+        : true
+
+/** The overloads of `V` that `Body` and `Query` may match. */
+type VigorApiPossible<V extends readonly unknown[], Body, Query> =
+    V[number] extends infer R
+        ? R extends unknown
+            ? VigorApiBodyPossible<R, Body> extends true
+                ? VigorApiQueryPossible<R, Query> extends true ? R : never
+                : never
+            : never
+        : never
+
+/**
+ * The route(s) of overloads `V` a request with `Body` and `Query` is for: a
+ * single route is always it; otherwise the first one the request surely
+ * matches, else every one it may match (their union), else all of them.
+ */
+export type VigorApiSelect<V extends readonly unknown[], Body, Query> =
+    V extends readonly [infer Only]
+        ? Only
+        : VigorApiDefinite<V, Body, Query> extends infer D
+            ? [D] extends [never]
+                ? VigorApiPossible<V, Body, Query> extends infer P
+                    ? [P] extends [never] ? V[number] : P
+                    : never
+                : D
+            : never
+
+/** What an overload asks of a request, for {@link VigorApiRequestIssue}'s `expected`. */
+type VigorApiRequestOf<R> = R extends unknown ? VigorSimplify<Pick<R, keyof R & ("query" | "body")>> : never
+
 /**
  * Everything wrong with a request's `body` (as set) and `query` (the stored
  * `.query()` list) against the route(s) it matches, or `never`. A route
- * without `body`/`query` accepts anything there.
+ * without `body`/`query` accepts anything there. A route with overloads
+ * only needs one the request may match.
  */
 export type VigorApiRequestIssues<Slot, Method, Path, Body, Query> =
     VigorApiMatched<Slot, Method, Path> extends infer X
-        ? X extends VigorApiMatch<infer K, infer R>
-            ? VigorApiBodyIssue<K, R, Body> | VigorApiQueryIssue<K, R, Query>
+        ? X extends VigorApiMatch<infer K, infer V>
+            ? V extends readonly [infer R]
+                ? VigorApiBodyIssue<K, R, Body> | VigorApiQueryIssue<K, R, Query>
+                : [VigorApiDefinite<V, Body, Query> | VigorApiPossible<V, Body, Query>] extends [never]
+                    ? VigorApiRequestIssue<
+                        K,
+                        "the request matches none of the route's overloads",
+                        VigorApiRequestOf<V[number]>,
+                        { body: [Body] extends [VigorEmptyType] ? undefined : Body, query: VigorQueryOf<Query> }
+                    >
+                    : never
             : never
         : never
 

@@ -10,7 +10,7 @@ type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y 
 type Expect<T extends true> = T
 
 declare const resp: Response
-type Api = { "GET /u": { response: { id: number } } }
+type Api = { "/u": { GET: { response: { id: number } } } }
 
 const retry = vigor.retry(async () => 1 as const)
 const parse = vigor.parse(resp).cast<{ p: 1 }>()
@@ -46,14 +46,14 @@ export type A8 = Expect<Equal<typeof a8, readonly [1]>>
 // Returning `ctx` changes nothing, so config set later still decides the result.
 const e1 = await vigor.fetch("https://x").middlewares(m => m.onError("intercept", ctx => ctx)).cast<{ c: 1 }>().request()
 export type E1 = Expect<Equal<typeof e1, { c: 1 }>>
-const e2 = await vigor.fetch("https://x").middlewares(m => m.onError("intercept", ctx => ctx)).apiMap<Api>().path("u").request()
+const e2 = await vigor.fetch("https://x").middlewares(m => m.onError("intercept", ctx => ctx)).apiMap<Api>().path("append", "u").request()
 export type E2 = Expect<Equal<typeof e2, { id: number }>>
 const e3 = await vigor.retry().middlewares(m => m.onError("intercept", ctx => ctx).after("intercept", ctx => ctx)).target(async () => 1 as const).request()
 export type E3 = Expect<Equal<typeof e3, 1>>
 const e4 = await vigor.parse(resp).middlewares(m => m.before("intercept", ctx => ctx)).cast<"late">().request()
 export type E4 = Expect<Equal<typeof e4, "late">>
 // ...and an `onResult` registered after it isn't undone.
-const e5 = await vigor.fetch("https://x").apiMap<Api>().path("u")
+const e5 = await vigor.fetch("https://x").apiMap<Api>().path("append", "u")
     .middlewares(m => m.onError("intercept", ctx => ctx).after("intercept", async ctx => ctx))
     .middlewares(m => m.onResult("fluent", r => r.id))
     .request()
