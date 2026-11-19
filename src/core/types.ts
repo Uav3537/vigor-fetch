@@ -1,4 +1,5 @@
 import { VigorEmptyType } from "./symbol"
+import type { VigorIsTransform, VigorTransformResult } from "./transform"
 
 export type VigorPrimitive =
     | string
@@ -249,10 +250,15 @@ export type VigorContextReset<Ctx, Fresh> = {
 type VigorContextStep<Ctx, M, FluentKey extends PropertyKey> =
     M extends { _mode: "intercept", func: (ctx: infer P, ...args: any[]) => infer Ret }
         ? VigorContextApply<Ctx, VigorContextChanges<P, Awaited<Ret>>>
-        : M extends { _mode: "fluent", func: (...args: any[]) => infer FR }
+        : M extends { _mode: "fluent", func: infer F }
             ? [FluentKey] extends [never]
                 ? Ctx
-                : VigorContextApply<Ctx, { [K in FluentKey]: Awaited<FR> }>
+                // A `vigor.transform()` function: its registry entry for what it's given.
+                : VigorIsTransform<F> extends true
+                    ? VigorContextApply<Ctx, { [K in FluentKey]: VigorTransformResult<F, Ctx[K & keyof Ctx]> }>
+                    : F extends (...args: any[]) => infer FR
+                        ? VigorContextApply<Ctx, { [K in FluentKey]: Awaited<FR> }>
+                        : Ctx
             : Ctx
 
 /**

@@ -51,23 +51,30 @@ export type VigorParseBeforeContextSchema<
     T extends VigorParseSchema<T>
 > = VigorContextStage<VigorParseContextSchema<T, VigorDefaultType>, T["policy"]["middlewares"]["before"]>
 
-/** Context seen by `after` middlewares — `result` is the parsed one; what `before` changed otherwise carries over. */
+/**
+ * Context seen by `after` middlewares — `result` is the parsed one; what `before` changed otherwise carries over.
+ * `Natural` is the result before any middleware: by default the engine's own
+ * (see {@link VigorParseNaturalResult}); a fetch passes its API map's data.
+ */
 export type VigorParseAfterContextSchema<
-    T extends VigorParseSchema<T>
+    T extends VigorParseSchema<T>,
+    Natural = VigorParseNaturalResult<T>
 > = VigorContextStage<
-    VigorContextReset<VigorParseBeforeContextSchema<T>, { result: VigorParseNaturalResult<T> }>,
+    VigorContextReset<VigorParseBeforeContextSchema<T>, { result: Natural }>,
     T["policy"]["middlewares"]["after"]
 >
 
 /** Context seen by `onResult` middlewares — `ctx.result` is what the earlier `onResult` ones left it as. */
 export type VigorParseOnResultContextSchema<
-    T extends VigorParseSchema<T>
-> = VigorContextStage<VigorParseAfterContextSchema<T>, T["policy"]["middlewares"]["onResult"], "result">
+    T extends VigorParseSchema<T>,
+    Natural = VigorParseNaturalResult<T>
+> = VigorContextStage<VigorParseAfterContextSchema<T, Natural>, T["policy"]["middlewares"]["onResult"], "result">
 
 /** Context seen by `onError` middlewares — every strategy failed (or a middleware threw). */
 export type VigorParseOnErrorContextSchema<
-    T extends VigorParseSchema<T>
-> = VigorContextStage<VigorParseContextSchema<T>, T["policy"]["middlewares"]["onError"]>
+    T extends VigorParseSchema<T>,
+    Natural = VigorParseNaturalResult<T>
+> = VigorContextStage<VigorParseContextSchema<T, VigorParsePipeResult<T, Natural> | VigorDefaultType>, T["policy"]["middlewares"]["onError"]>
 
 /** Context shape once the full middleware pipeline (including `onResult`) has run. */
 export type VigorParseResultContextSchema<

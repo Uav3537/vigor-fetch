@@ -179,17 +179,17 @@ type VigorApiVariants<Item, X> =
         ? { -readonly [I in keyof X]: VigorApiNormalize<Item, X[I]> }
         : [VigorApiNormalize<Item, X>]
 
-/** Every `"<METHOD> /<path>"` key the nested map `M` has. */
-type VigorApiFlatKey<M> = {
-    [P in keyof M & VigorApiPathKey]: `${keyof M[P] & VigorApiMethod} ${P}`
-}[keyof M & VigorApiPathKey]
 
 /**
  * The nested map `M` flattened to one entry per method and path, keyed
  * `"<METHOD> /<path>"`, each the list of its overloads as routes.
  */
 export type VigorApiFlatten<M> = {
-    [K in VigorApiFlatKey<M>]: K extends `${infer Method} ${infer P}`
+    // Every `"<METHOD> /<path>"` key `M` has. Inline rather than an alias, so
+    // errors list the keys themselves instead of the alias's name.
+    [K in {
+        [P in keyof M & VigorApiPathKey]: `${keyof M[P] & VigorApiMethod} ${P}`
+    }[keyof M & VigorApiPathKey]]: K extends `${infer Method} ${infer P}`
         ? P extends keyof M
             ? Method extends keyof M[P]
                 ? VigorApiVariants<M[P], NonNullable<M[P][Method]>>
@@ -198,14 +198,26 @@ export type VigorApiFlatten<M> = {
         : never
 }
 
+/** `.apiMap<M>(options)`'s options. */
+export type VigorApiMapOptions = {
+    /**
+     * Make a request that matches no route a compile error on `request()` /
+     * `requestVerbose()`, instead of silently typing its result from the parse
+     * engine (usually `unknown`). A dynamic path (`...segments: string[]`)
+     * can't be matched, so it's an error too. `.cast<T>()` opts a request out.
+     */
+    strict?: boolean
+}
+
 /**
  * What `.apiMap<M>()` stores on the schema: the map, flattened (see
- * {@link VigorApiFlatten}), and the path segments already set when it was
- * called, which every route is relative to.
+ * {@link VigorApiFlatten}), the path segments already set when it was
+ * called, which every route is relative to, and whether it's `strict`.
  */
-export type VigorApiMapSlot<M, Base extends readonly string[]> = {
+export type VigorApiMapSlot<M, Base extends readonly string[], Strict extends boolean = false> = {
     map: M
     base: Base
+    strict: Strict
 }
 
 /** One `.path()` argument as the string segment it becomes at runtime. */
@@ -341,7 +353,7 @@ type VigorApiMatchFor<M, Method, A> =
  * `.path("append", kind)` with `kind: "a" | "b"`) gives a union of matches.
  */
 export type VigorApiMatched<Slot, Method, Path> =
-    Slot extends VigorApiMapSlot<infer M, infer Base>
+    Slot extends VigorApiMapSlot<infer M, infer Base, boolean>
         ? VigorApiMatchFor<M, Method, VigorDropPrefix<VigorPathSegments<Path>, VigorPathSegments<Base>>>
         : VigorApiNoMatchType
 
@@ -450,7 +462,7 @@ export type VigorApiResponse<Slot, Method, Path, Body, Query> = VigorApiSuccess<
 
 /** The route of key `K` in the API map stored in `Slot` (its first overload: they share `params`), or `{}`. */
 export type VigorApiRouteOf<Slot, K> =
-    Slot extends VigorApiMapSlot<infer M, any>
+    Slot extends VigorApiMapSlot<infer M, any, boolean>
         ? K extends keyof M
             ? M[K] extends readonly [infer R, ...any[]] ? R : {}
             : {}
@@ -470,11 +482,20 @@ export type VigorApiRequestIssue<Key, Problem extends string, Expected, Received
     readonly received: Received
 }
 
-/** `T` with every `readonly` dropped, deeply — a `const`-inferred value against a declared type. */
-type VigorDeepMutable<T> =
-    T extends VigorBuiltin
+/**
+ * `T` with every `readonly` dropped, deeply — a `const`-inferred value against a declared type.
+ * Stops after {@link VigorDeepMutableLimit} levels and keeps the rest as-is: a
+ * recursive type (e.g. `z.json()`) would otherwise never end (TS2589).
+ */
+type VigorDeepMutable<T, Depth extends readonly unknown[] = []> =
+    Depth["length"] extends VigorDeepMutableLimit
         ? T
-        : { -readonly [K in keyof T]: VigorDeepMutable<T[K]> }
+        : T extends VigorBuiltin
+            ? T
+            : { -readonly [K in keyof T]: VigorDeepMutable<T[K], [...Depth, unknown]> }
+
+/** How deep {@link VigorDeepMutable} goes. A `const` literal deeper than this keeps its inner `readonly`. */
+type VigorDeepMutableLimit = 10
 
 type VigorUnionToIntersection<U> =
     (U extends unknown ? (x: U) => void : never) extends (x: infer I) => void ? I : never
@@ -490,6 +511,8 @@ type VigorApiBodyIssue<Key, R, Body> =
         ? R["body" & keyof R] extends infer B
             ? [Body] extends [VigorEmptyType | null]
                 ? undefined extends B ? never : null extends B ? never : VigorApiRequestIssue<Key, "the route requires a body", B, Body>
+                // Check as-is first: deep-mutating a recursive body (e.g. z.json()) never ends.
+                : [Body] extends [B] ? never
                 : VigorDeepMutable<Body> extends B ? never : VigorApiRequestIssue<Key, "the body does not match the route", B, Body>
             : never
         : never
@@ -498,7 +521,8 @@ type VigorApiQueryIssue<Key, R, Query> =
     "query" extends keyof R
         ? [NonNullable<R["query" & keyof R]>, VigorQueryOf<Query>] extends [infer D, infer Q]
             ? [Exclude<keyof Q, keyof D>] extends [never]
-                ? VigorDeepMutable<Q> extends D ? never : VigorApiRequestIssue<Key, "the query does not match the route", D, Q>
+                ? [Q] extends [D] ? never
+                : VigorDeepMutable<Q> extends D ? never : VigorApiRequestIssue<Key, "the query does not match the route", D, Q>
                 : VigorApiRequestIssue<Key, `unknown query key "${Exclude<keyof Q, keyof D> & string}"`, D, Q>
             : never
         : never
@@ -521,6 +545,8 @@ type VigorApiBodyPossible<R, Body> =
         ? R["body" & keyof R] extends infer B
             ? [Body] extends [VigorEmptyType | null]
                 ? undefined extends B ? true : null extends B ? true : false
+                // As-is first, like VigorApiBodyIssue: skips deep-mutating a recursive body.
+                : [Body] extends [B] ? true
                 : [VigorDeepMutable<Body> & B] extends [never] ? false : true
             : never
         : true
@@ -599,6 +625,30 @@ export type VigorApiRequestIssues<Slot, Method, Path, Body, Query> =
             : never
         : never
 
+/**
+ * With a `strict` API map, a {@link VigorApiRequestIssue} for every possible
+ * path of the request that matches no route; otherwise `never`. `expected`
+ * lists the routes of the request's method.
+ */
+export type VigorApiStrictIssues<Slot, Method, Path> =
+    Slot extends VigorApiMapSlot<infer M, infer Base, true>
+        ? VigorApiMatched<Slot, Method, Path> extends infer X
+            ? X extends VigorApiNoMatchType
+                ? VigorDropPrefix<VigorPathSegments<Path>, VigorPathSegments<Base>> extends infer A extends readonly string[]
+                    ? VigorApiRequestIssue<
+                        `${Method & string} (strict)`,
+                        number extends A["length"]
+                            ? "the path is dynamic (string[]), so no route can match it: use .route() or .cast<T>()"
+                            : "no route of the API map matches the request",
+                        // Distributed, so the editor lists the keys instead of an alias.
+                        keyof M extends infer K ? K extends `${Method & string} /${string}` ? K : never : never,
+                        { method: Method, path: A }
+                    >
+                    : never
+                : never
+            : never
+        : never
+
 /** The method a request is sent with: the one set, else `POST` with a body and `GET` without. */
 export type VigorResolvedMethod<Method, Body> =
     Method extends VigorEmptyType
@@ -606,7 +656,7 @@ export type VigorResolvedMethod<Method, Body> =
         : Method
 
 /** The route keys of the API map stored in `Slot`. */
-export type VigorApiKeys<Slot> = Slot extends VigorApiMapSlot<infer M, any> ? keyof M & VigorApiRouteKey : never
+export type VigorApiKeys<Slot> = Slot extends VigorApiMapSlot<infer M, any, boolean> ? keyof M & VigorApiRouteKey : never
 
 type VigorParamNames<P extends string> =
     P extends `${infer H}/${infer R}`

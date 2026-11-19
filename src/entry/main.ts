@@ -27,6 +27,7 @@ import { isVigorRetryError } from "@retry/error";
 import { isVigorParseError } from "@parse/error";
 import { isVigorFetchError } from "@fetch/error";
 import { isVigorAllError } from "@all/error";
+import { createVigorTransform } from "@core/transform";
 
 /**
  * The result type `request()` infers for a builder — what `ReturnType`
@@ -127,6 +128,12 @@ const vigorBase = {
             middlewares: () => new VigorAllPolicyMiddlewares(),
         },
     },
+
+    /**
+     * Tags a function as a registered result transform (see `VigorTransforms`),
+     * for a fluent `onResult` middleware whose result type follows what it's given.
+     */
+    transform: createVigorTransform,
 
     guards: {
         retry: isVigorRetryError,

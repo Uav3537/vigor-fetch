@@ -3,6 +3,7 @@ import { VigorRetryError, VigorRetryErrorMessageFuncs } from "@retry/error";
 import { VigorParseError, VigorParseErrorMessageFuncs } from "@parse/error";
 import { VigorFetchSchema } from "./main";
 import type { VigorFetchContextSchema } from "./context";
+import type { VigorFetchParsedFor } from "./middlewares";
 import type { VigorApiFailure, VigorPathList, VigorResolvedMethod } from "./api";
 
 export const VigorFetchErrorMessageFuncs = {
@@ -47,8 +48,9 @@ type VigorFetchFailedDataBase = Parameters<typeof VigorFetchErrorMessageFuncs["F
 
 /**
  * `FETCH_FAILED`'s `data` for request `T`: per declared failure status of
- * its matched route, `{ status, ..., parsed }` (`parsed` being `undefined`
- * when the body couldn't be parsed), with `parsed: unknown` for the rest.
+ * its matched route, `{ status, ..., parsed }` — the declared body through
+ * the parse engine's pipeline, `undefined` when the body couldn't be
+ * parsed — with `parsed: unknown` for the rest.
  * Without a matching route, or with a `raw` parse (whose `parsed` is the
  * `Response`), it's the plain shape.
  */
@@ -59,7 +61,8 @@ export type VigorFetchFailedData<T extends VigorFetchSchema<any>> =
             ? VigorFetchFailedDataBase
             : VigorApiFailure<T["apiMap"], VigorResolvedMethod<T["policy"]["method"], T["policy"]["body"]>, VigorPathList<T["policy"]["path"]>, T["policy"]["body"], T["policy"]["query"]> extends infer F
                 ? F extends { status: infer S, parsed: infer P }
-                    ? { status: S, statusText: string, response: Response, url: string, parsed: P }
+                    // A declared status's body goes through the parse engine, like a success's.
+                    ? { status: S, statusText: string, response: Response, url: string, parsed: unknown extends P ? P : VigorFetchParsedFor<T, Exclude<P, undefined>> | undefined }
                     : never
                 : never
 

@@ -4,7 +4,7 @@ import { VigorStatus } from "@core/status"
 import { VigorParsePolicyMiddlewaresTypeLambda } from "./TL"
 import { VigorApply } from "@core/HKT"
 import { VigorDeepMerge } from "@core/types"
-import type { VigorParseContextSchema, VigorParseBeforeContextSchema, VigorParseAfterContextSchema, VigorParseOnResultContextSchema, VigorParseOnErrorContextSchema } from "./context"
+import type { VigorParseContextSchema, VigorParseBeforeContextSchema, VigorParseAfterContextSchema, VigorParseOnResultContextSchema, VigorParseOnErrorContextSchema, VigorParseNaturalResult } from "./context"
 
 export type VigorParsePolicyMiddlewaresSchema<
     T extends VigorParseSchema<T>
@@ -119,12 +119,17 @@ export class VigorParsePolicyMiddlewares<
     }
 }
 
-/** The result the success pipeline produces: the parsed one (or `.cast<T>()`'s), through `after` and `onResult`. */
+/**
+ * The result the success pipeline produces: the parsed one (or `.cast<T>()`'s), through `after` and `onResult`.
+ * `Natural` replaces what the pipeline starts from (see `VigorParseAfterContextSchema`).
+ */
 export type VigorParsePipeResult<
-    T extends VigorParseSchema<T>
-> = VigorParseOnResultContextSchema<T>["result"]
+    T extends VigorParseSchema<T>,
+    Natural = VigorParseNaturalResult<T>
+> = VigorParseOnResultContextSchema<T, Natural>["result"]
 
 /** `ctx.result` once the `onError` middlewares ran — what a recovered run (`setResult`) resolves to, as far as types go. */
 export type VigorParseErrorPipeResult<
-    T extends VigorParseSchema<T>
-> = VigorParseOnErrorContextSchema<T>["result"]
+    T extends VigorParseSchema<T>,
+    Natural = VigorParseNaturalResult<T>
+> = VigorParseOnErrorContextSchema<T, Natural>["result"]

@@ -95,6 +95,7 @@ vigor.retry(task?)     // -> VigorRetry, target pre-set if given
 vigor.parse(request|response?) // -> VigorParse, target pre-set if given
 vigor.all(...tasks)    // -> VigorAll, target pre-set if any tasks given
 vigor.use(plugin, options?)
+vigor.transform(key, arg?, fn) // a registered result transform, see Result transforms
 vigor.builders         // direct access to each module's sub-builders
 vigor.guards           // each module's error type guard
 ```
@@ -178,7 +179,7 @@ Without a callback the guard only checks the error you pass, as before: it narro
 | `middlewares(fn \| config)` | Configures the fetch middleware pipeline (below) |
 | `retry(fn \| config \| VigorRetry)` | Configures the **internal retry engine** used to send the request, starting from its current config (the retry defaults until set). A callback gets a `VigorRetry` holding that config and a config object is merged into it, so each call adds to the previous ones (`algorithms` still replaces the algorithm); a `VigorRetry` instance is a complete engine and replaces it |
 | `parse(fn \| config \| VigorParse)` | Configures the **internal parse engine** used to interpret the request or response, merging the same way as `retry()`: a callback or config object adds to the current config, a `VigorParse` instance replaces it. Its result type (`.cast<T>()`, `raw`, middlewares, `default`) becomes the request's result type |
-| `apiMap<M>()` | Attaches a type-level API map: the matched route's `response` becomes the result type (see [apiMap / route](#apimap--route)) |
+| `apiMap<M>(options?)` | Attaches a type-level API map: the matched route's `response` becomes the result type. `{ strict: true }` makes an unmatched request a compile error (see [apiMap / route](#apimap--route)) |
 | `route(key, params?)` | Sets method and path from an API map route, filling its `:name` segments |
 | `cast<T>()` | Overrides the inferred result type with `T` |
 | `request()` | Executes and returns the parsed result, throwing on failure |
@@ -241,7 +242,9 @@ await api.route("GET /users/:id", { id: 1 }).request()        // User — key au
 - The request's method is the one set with `.method()`, or — as at runtime — `POST` with a body and `GET` without.
 - Path arguments are matched the way the URL is built: `.path("append", "users/1")` is two segments, `null`/`undefined` are dropped, numbers become their digits. A non-literal argument (`id: string`) only matches a `:name` segment.
 - Routes are relative to the path set before `.apiMap()`, so a shared prefix goes first: `vigor.fetch(origin).path("append", "v1").apiMap<Api>()`. The origin's own pathname isn't part of the match.
+- The map describes the raw response body, what the parse strategies produce. Everything that runs after that applies on top of it, as at runtime: the parse engine's middlewares, `default` and `onError`, then the fetch's `.cast<T>()`, middlewares, `default` and `onError`. A declared failure's `parsed` goes through the parse engine too.
 - No match falls back to the parse engine's type (`unknown` by default). `.cast<T>()` still wins over the map, and a `raw` parse still gives the `Response`.
+- `.apiMap<Api>({ strict: true })` turns a missed match into a compile error on `request()`/`requestVerbose()` instead: the error lists the routes of the request's method and the path it got. A dynamic path (`.path("append", ...segments)` with `segments: string[]`) can't be matched, so it's an error too — use `.route()`, or `.cast<T>()`, which opts a request out of the check.
 - `route(key, params)` takes `"<METHOD> /<path>"` keys built from the map, sets the method and appends the route's path with `:name` segments filled from `params` (encoded like any path segment). Unknown keys, missing or extra params, and a `GET`/`HEAD` route on a request that already has a body are type errors.
 - It's purely a type: `apiMap()` changes nothing at runtime, and responses aren't validated.
 
@@ -478,6 +481,31 @@ Fluent-mode signatures: `before`/`after` take `(ctx) => void`, `onResult` takes 
 In `before`, `ctx.options` already holds the built request (`method`, `headers`, `body`, extra options), so a fluent middleware can also edit it directly — e.g. `ctx.options.headers["X-Trace"] = id`.
 
 An intercept middleware that returns nothing keeps the current context (this applies to every module).
+
+#### Result transforms
+
+A plain callback is typed where it's written: on a shared base, before `.apiMap()` or the path, a fluent `onResult`'s parameter is `unknown`, and its return type is fixed from that. To keep the type of what a middleware does and apply it once the input is known, register the transform's type and tag the function with `vigor.transform()`:
+
+```ts
+declare module "vigor-fetch" {
+    interface VigorTransforms<In, Arg> {          // write the type parameters exactly like this
+        unwrap: In extends { data: infer D } ? D : never
+        pick: Arg extends keyof In ? In[Arg] : never
+    }
+}
+
+const unwrap = vigor.transform("unwrap", r => r.data)
+const pick = <const K extends string>(key: K) => vigor.transform("pick", key, r => r[key])
+
+const base = vigor.fetch(origin).middlewares(m => m.onResult("fluent", unwrap))
+const me = await base.apiMap<Api>().path("append", "me").request() // the route's `data`
+```
+
+- `In` is the result the middleware actually gets, at that point of the pipeline: the API map's data (per status, so narrowing `status` still narrows `data`), a `.cast<T>()`, the target's return type, or `unknown` where nothing is known — the entry decides what that gives.
+- `Arg` is the argument the transform was created with (`vigor.transform(key, arg, fn)`), `undefined` without one.
+- Use it as a fluent `onResult` middleware, on any engine — including a fetch's parse engine, where the map's data (and a failed response's declared body) goes through it too.
+- Nothing checks that the function returns its entry's type; keep the two side by side. The function runs as it is: `vigor.transform()` returns it unchanged.
+- The registry is global to the program. A library registering entries should prefix their names (`"mylib:unwrap"`) so they don't collide with its users'.
 
 `onError` → `proceedRestart()` re-runs the **entire** fetch pipeline from scratch (up to `settings.maxRestarts` times) — this is separate from, and on top of, the internal retry engine's per-attempt retries.
 

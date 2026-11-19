@@ -21,7 +21,7 @@ type VigorFetchRetryMergeStrategy = typeof VigorFetchRetryMergeStrategy
 type VigorFetchSerializeRecord = (stage: VigorFetchSerializerStage, steps: string[], output: unknown) => void
 import { VigorFetchParseSource, VigorFetchTimeline, VigorFetchTimelineSnapshot } from "./timeline"
 import { createVigorTimelineRecorder, markVigorInternal, VigorTimelineOutcome } from "@core/timeline"
-import { VigorApiFlatten, VigorApiKeys, VigorApiMap, VigorApiMapSlot, VigorApiRequestIssues, VigorApiRouteOf, VigorApiSuccess, VigorPathList, VigorResolvedMethod, VigorRouteMethod, VigorRoutePath, VigorRoutePathList, VigorRouteParams, VigorRouteWithoutParams, VigorRouteWithParams } from "./api"
+import { VigorApiFlatten, VigorApiKeys, VigorApiMap, VigorApiMapOptions, VigorApiMapSlot, VigorApiRequestIssues, VigorApiStrictIssues, VigorApiRouteOf, VigorApiSuccess, VigorPathList, VigorResolvedMethod, VigorRouteMethod, VigorRoutePath, VigorRoutePathList, VigorRouteParams, VigorRouteWithoutParams, VigorRouteWithParams } from "./api"
 
 export * from "./policy"
 export * from "./timeline"
@@ -102,7 +102,8 @@ export type VigorFetchVerboseResult<T extends VigorFetchSchema<T>, R = VigorFetc
 
 /**
  * What `request()`/`requestVerbose()` require of their `this`: the request
- * itself, unless its `body`/`query` don't match its API map route — then a
+ * itself, unless its `body`/`query` don't match its API map route, or a
+ * `strict` map has no route for it (see `VigorApiStrictIssues`) — then a
  * {@link VigorApiRequestIssue} describing the mismatch, so the call doesn't
  * compile. Only computed where those methods are called.
  */
@@ -111,13 +112,21 @@ export type VigorFetchRequestThis<T extends VigorFetchSchema<T>> =
         ? VigorFetch<T>
         : T["apiMap"] extends VigorEmptyType
             ? VigorFetch<T>
-            : VigorApiRequestIssues<
-                T["apiMap"],
-                VigorResolvedMethod<T["policy"]["method"], T["policy"]["body"]>,
-                VigorPathList<T["policy"]["path"]>,
-                T["policy"]["body"],
-                T["policy"]["query"]
-            > extends infer I
+            : | VigorApiRequestIssues<
+                    T["apiMap"],
+                    VigorResolvedMethod<T["policy"]["method"], T["policy"]["body"]>,
+                    VigorPathList<T["policy"]["path"]>,
+                    T["policy"]["body"],
+                    T["policy"]["query"]
+                >
+                // A cast result type isn't the parse engine's, so a strict map lets it through.
+                | (T["cast"] extends VigorEmptyType
+                    ? VigorApiStrictIssues<
+                        T["apiMap"],
+                        VigorResolvedMethod<T["policy"]["method"], T["policy"]["body"]>,
+                        VigorPathList<T["policy"]["path"]>
+                    >
+                    : never) extends infer I
                 ? [I] extends [never] ? VigorFetch<T> : I
                 : never
 
@@ -556,12 +565,15 @@ export class VigorFetch<
      * }
      * const api = vigor.fetch("https://api.example.com").apiMap<Api>()
      * const user = await api.path("append", "users", id).request() // User
+     *
+     * // strict: a request no route matches doesn't compile (`.cast<T>()` opts out)
+     * const strictApi = vigor.fetch("https://api.example.com").apiMap<Api>({ strict: true })
      */
-    public apiMap<const M extends VigorApiMap<M>>(): VigorFetchNext<T, { apiMap: VigorApiMapSlot<VigorApiFlatten<M>, VigorPathList<T["policy"]["path"]>> }, { apiMap: "replace" }> {
-        return this._next(
-            { apiMap: VigorCastPlaceholder } as unknown as { apiMap: VigorApiMapSlot<VigorApiFlatten<M>, VigorPathList<T["policy"]["path"]>> },
-            { apiMap: "replace" }
-        )
+    public apiMap<const M extends VigorApiMap<M>>(options: VigorApiMapOptions & { strict: true }): VigorFetchNext<T, { apiMap: VigorApiMapSlot<VigorApiFlatten<M>, VigorPathList<T["policy"]["path"]>, true> }, { apiMap: "replace" }>
+    public apiMap<const M extends VigorApiMap<M>>(options?: VigorApiMapOptions & { strict?: false }): VigorFetchNext<T, { apiMap: VigorApiMapSlot<VigorApiFlatten<M>, VigorPathList<T["policy"]["path"]>> }, { apiMap: "replace" }>
+    public apiMap(_options?: VigorApiMapOptions): any {
+        // Type-only: the options change nothing at runtime.
+        return this._next({ apiMap: VigorCastPlaceholder } as any, { apiMap: "replace" })
     }
     /**
      * Sets the method and path from a route of the API map (see `.apiMap()`),

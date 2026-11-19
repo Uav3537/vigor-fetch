@@ -5,7 +5,7 @@ import { VigorApply } from "@core/HKT"
 import { VigorParseTypeLambda } from "./TL"
 import { VigorParsePolicySettings, VigorParsePolicySettingsSchema } from "./settings"
 import { VigorDeepMerge, VigorDeepPartial, VigorNoExtraKeys, VigorReturnType } from "@core/types"
-import { VigorParseErrorPipeResult, VigorParsePolicyMiddlewares, VigorParsePolicyMiddlewaresApi, VigorParsePolicyMiddlewaresSchema } from "./middlewares"
+import { VigorParseErrorPipeResult, VigorParsePipeResult, VigorParsePolicyMiddlewares, VigorParsePolicyMiddlewaresApi, VigorParsePolicyMiddlewaresSchema } from "./middlewares"
 import { VigorParsePolicyStrategies, VigorParsePolicyStrategiesSchema, VigorParseContentTypeStrategy, readVigorParseBody } from "./strategies"
 import { VigorParseError, VigorParseRequestError } from "./error"
 import { VigorParsePolicyBase, VigorParsePolicySchema } from "./policy"
@@ -29,6 +29,19 @@ export type VigorParseSchema<
 export type VigorParseResult<T extends VigorParseSchema<T>> =
     | VigorExcludeDefault<VigorParseContextSchema<T>["result"]>
     | VigorExcludeDefault<VigorParseErrorPipeResult<T>>
+    | VigorReturnType<T["policy"]["settings"]["default"]>
+
+/**
+ * What a run of engine `T` resolves to when parsing yields `Natural` (as
+ * `VigorParseResult`, but starting from `Natural` instead of the engine's
+ * own `.cast<T>()`/`unknown`): through the middlewares, `| default`, `|`
+ * what `onError` recovers with. A fetch uses it to run its API map's data
+ * through the parse engine.
+ */
+export type VigorParseResultFor<T extends VigorParseSchema<T>, Natural> =
+    | VigorExcludeDefault<VigorParsePipeResult<T, Natural>>
+    // Only a configured `onError` can recover; without one it would add the pipeline's type again.
+    | (T["policy"]["middlewares"]["onError"] extends readonly [] ? never : VigorExcludeDefault<VigorParseErrorPipeResult<T, Natural>>)
     | VigorReturnType<T["policy"]["settings"]["default"]>
 
 /** The builder `T` becomes after merging `P` in (with strategy tree `S`). */

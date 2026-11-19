@@ -5,7 +5,7 @@ import { VigorFetchPolicyMiddlewaresTypeLambda } from "./TL"
 import { VigorApply } from "@core/HKT"
 import { VigorDeepMerge } from "@core/types"
 import { VigorFetchOptions } from "./context"
-import type { VigorParseResult, VigorParseSchema } from "@parse/main"
+import type { VigorParseResult, VigorParseResultFor, VigorParseSchema } from "@parse/main"
 import type { VigorApiNoMatchType, VigorApiResponse, VigorPathList, VigorResolvedMethod } from "./api"
 import type { VigorFetchContextSchema, VigorFetchBeforeContextSchema, VigorFetchAfterContextSchema, VigorFetchOnResultContextSchema, VigorFetchOnErrorContextSchema } from "./context"
 
@@ -137,6 +137,19 @@ export type VigorFetchParsedResult<T extends VigorFetchSchema<T>> =
         : unknown
 
 /**
+ * What the parse engine produces when the strategies yield API-map data `D`:
+ * `D` through its middlewares, `| default`, `|` its `onError` recovery — the
+ * map describes the raw body, and at runtime the parse engine's pipeline
+ * runs on it like on any other.
+ */
+export type VigorFetchParsedFor<T extends VigorFetchSchema<T>, D> =
+    VigorDeepMerge<T["policy"]["parse"], { policy: { target: Response } }, { policy: { target: "replace" } }> extends infer P
+        ? P extends VigorParseSchema<any>
+            ? VigorParseResultFor<P, D>
+            : D
+        : D
+
+/**
  * The result type before `.cast<T>()`: a `raw` parse gives the `Response`
  * itself; otherwise the union of the API map's matched route's success
  * `responses` (see
@@ -154,13 +167,16 @@ export type VigorFetchNaturalResult<T extends VigorFetchSchema<T>> =
 
 /**
  * The result type before `.cast<T>()` for API-map data `D` (one status's,
- * or the union of all): a `raw` parse gives the `Response`, and where no
- * route matched (`VigorApiNoMatchType`) the parse engine's result is used.
+ * or the union of all): a `raw` parse gives the `Response`; matched data
+ * goes through the parse engine (see {@link VigorFetchParsedFor}), and
+ * where no route matched (`VigorApiNoMatchType`) the parse engine's own
+ * result is used.
  */
 export type VigorFetchNaturalFor<T extends VigorFetchSchema<T>, D> =
     T["policy"]["parse"]["policy"]["settings"]["raw"] extends true
         ? VigorFetchParsedResult<T>
-        : Exclude<D, VigorApiNoMatchType> | (VigorApiNoMatchType extends D ? VigorFetchParsedResult<T> : never)
+        : | ([Exclude<D, VigorApiNoMatchType>] extends [never] ? never : VigorFetchParsedFor<T, Exclude<D, VigorApiNoMatchType>>)
+          | (VigorApiNoMatchType extends D ? VigorFetchParsedResult<T> : never)
 
 /**
  * The result the success pipeline produces. `Natural` is the result it
