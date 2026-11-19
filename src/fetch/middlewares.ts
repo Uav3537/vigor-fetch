@@ -37,7 +37,8 @@ export type VigorFetchPolicyMiddlewaresFluent<
     before: { _mode: "fluent", func: (ctx: VigorFetchBeforeContextSchema<T>) => void|Promise<void> }
     after: { _mode: "fluent", func: (ctx: VigorFetchAfterContextSchema<T>) => void|Promise<void> }
     onResult: { _mode: "fluent", func: (res: VigorFetchOnResultContextSchema<T>["result"]) => VigorFetchContextSchema<any>["result"]|Promise<VigorFetchContextSchema<any>["result"]> }
-    onError: { _mode: "fluent", func: (err: VigorFetchContextSchema<T>["error"]) => void|Promise<void> }
+    /** Returning a value (not `undefined`) recovers the request with it, like `setResult`. */
+    onError: { _mode: "fluent", func: (err: VigorFetchContextSchema<T>["error"]) => unknown }
 }
 
 export type VigorFetchPolicyMiddlewaresApi<

@@ -334,7 +334,7 @@ if (res.success) {
 ```
 
 - With an API map, there's one success member per declared status, each with that status's data run through the middlewares — so narrowing `status` narrows `data`. Without one, `status` is a `number`.
-- A result recovered from a failure — by `onError`'s `setResult` or `settings.default` — has no response: `status` and `response` are `null` (those members only exist when one of the two is set). On a failure they're `null` too; the failed response is on the error (`FETCH_FAILED`'s `data`).
+- A result recovered from a failure — by `onError` (`setResult`, or a fluent one's returned value) or `settings.default` — has no response: `status` and `response` are `null` (those members only exist when one of the two is set). On a failure they're `null` too; the failed response is on the error (`FETCH_FAILED`'s `data`).
 - `.cast<T>()` and `requestVerbose<R>()` replace every success's `data`, but keep `status` — and the failure types.
 
 ### Serializers
@@ -476,11 +476,36 @@ Every stage takes a mode as the first argument: `"fluent"` (return a plain value
 | `onResult` | Right before returning the final result | `setResult`, `throwError` |
 | `onError` | After the request has finally failed | `setResult`, `throwError`, `proceedRestart`, `cancelRestart` |
 
-Fluent-mode signatures: `before`/`after` take `(ctx) => void`, `onResult` takes `(res) => newRes`, `onError` takes `(err) => void`.
+Fluent-mode signatures: `before`/`after` take `(ctx) => void`, `onResult` takes `(res) => newRes`, `onError` takes `(err) => value | undefined`.
+
+A fluent `onError` that returns a value (awaited, anything but `undefined`) recovers the failure with it, like `setResult`; returning nothing leaves it failed. The value joins the result type, and, being a recovery, has no response (`status: null` in `requestVerbose()`). A fluent `onError` that never returns a value adds nothing. To recover with `undefined` itself, use an intercept `onError` and `setResult`.
+
+```ts
+.middlewares(m => m.onError("fluent", err =>
+  isVigorFetchError(err, "RETRY_EXHAUSTED") ? { offline: true } : undefined   // recover only when retries ran out
+))
+```
 
 In `before`, `ctx.options` already holds the built request (`method`, `headers`, `body`, extra options), so a fluent middleware can also edit it directly — e.g. `ctx.options.headers["X-Trace"] = id`.
 
 An intercept middleware that returns nothing keeps the current context (this applies to every module).
+
+**Prefer returning the new context over `setResult`.** `setResult` and the other API calls change the context at runtime, but not its type: the types only follow what a middleware *returns*. So to change the result, return it:
+
+```ts
+.middlewares(m => m.onResult("intercept", ctx => ({
+  ...ctx,
+  result: ctx.result.items,   // typed: the result is now `ctx.result.items`'s type
+})))
+
+// avoid: works at runtime, but the result type stays what it was
+.middlewares(m => m.onResult("intercept", (ctx, api) => {
+  api.setResult(ctx.result.items)
+  return ctx
+}))
+```
+
+The exception is `onError`: there `setResult` is also what marks the request as recovered, so a failure is only turned into a result with `setResult` (or by returning `{ ...ctx, result, flags: { ...ctx.flags, overridden: true } }`). Returning `{ ...ctx, result }` alone doesn't recover it.
 
 #### Result transforms
 
@@ -618,7 +643,7 @@ Each computed delay is perturbed by `±jitter` ms. For `linear`/`backoff`/`custo
 | `onRetry` | Right before the retry delay is awaited | `throwError`, `setDelay` |
 | `onError` | After attempts are exhausted (or `breakRetry` was called) | `setResult`, `throwError`, `proceedRestart`, `cancelRestart` |
 
-Fluent-mode signatures: `before`/`after` take `(ctx) => void`, `onResult` takes `(res) => newRes`, `retryIf` takes `(err) => boolean`, `onRetry`/`onError` take `(err) => void`.
+Fluent-mode signatures: `before`/`after` take `(ctx) => void`, `onResult` takes `(res) => newRes`, `retryIf` takes `(err) => boolean`, `onRetry` takes `(err) => void`, `onError` takes `(err) => value | undefined` (a returned value recovers with it, as in `vigor.fetch`).
 
 There are two independent resilience layers here:
 - **`retryIf`/`onRetry`** loop through attempts (bounded by `settings.maxAttempts`) without ever fully failing.
@@ -707,6 +732,8 @@ const data = await vigor
   }))
   .request();
 ```
+
+A fluent `onError` recovers with the value it returns (as in `vigor.fetch`), so the example above is the same as `.onError("fluent", () => null)`.
 
 `proceedRestart()` re-parses the same cached bytes, so a restart never hits an already-consumed body.
 
@@ -838,7 +865,7 @@ The same list is also `ctx.timeline`, so middlewares can read what has happened 
 
 A stage with no middlewares records nothing. `took` is in milliseconds. `index` is the middleware's position in its stage, and `internal` is `true` for one Vigor added itself — e.g. the `after`/`retryIf`/`onRetry` middlewares `vigor.fetch` puts on its retry engine to judge responses — so you can tell them from yours.
 
-`REQUEST_END` says how the call ended: `outcome` is `"result"` (the pipeline produced it), `"overridden"` (`onError` called `setResult`), `"default"` (`settings.default` produced it), or `"failed"`. `took` spans the whole call, restarts included, and `restarts` counts them; `error` is what it failed with, `null` on success. Nested engines end their own timelines with one too.
+`REQUEST_END` says how the call ended: `outcome` is `"result"` (the pipeline produced it), `"overridden"` (`onError` recovered it: `setResult`, or a fluent one's returned value), `"default"` (`settings.default` produced it), or `"failed"`. `took` spans the whole call, restarts included, and `restarts` counts them; `error` is what it failed with, `null` on success. Nested engines end their own timelines with one too.
 
 ### Per module
 

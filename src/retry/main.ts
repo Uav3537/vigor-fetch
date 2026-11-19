@@ -4,7 +4,7 @@ import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorRetryTypeLambda } from "./TL"
 import { VigorRetryPolicySettings, VigorRetryPolicySettingsSchema } from "./settings"
-import { VigorDeepMerge, VigorDeepPartial, VigorNoExtraKeys, VigorReturnType } from "@core/types"
+import { VigorDeepMerge, VigorDeepPartial, VigorFluentRecovery, VigorNoExtraKeys, VigorReturnType } from "@core/types"
 import { VigorRetryErrorPipeResult, VigorRetryPolicyMiddlewares, VigorRetryPolicyMiddlewaresApi, VigorRetryPolicyMiddlewaresSchema } from "./middlewares"
 import { VigorRetryPolicyAlgorithms, VigorRetryPolicyAlgorithmsSchema } from "./algorithms"
 import { VigorRetryError, VigorRetryRequestError } from "./error"
@@ -32,6 +32,7 @@ export type VigorRetrySchema<
 export type VigorRetryResult<T extends VigorRetrySchema<T>> =
     | VigorExcludeDefault<VigorRetryContextSchema<T>["result"]>
     | VigorExcludeDefault<VigorRetryErrorPipeResult<T>>
+    | VigorFluentRecovery<T["policy"]["middlewares"]["onError"]>
     | VigorReturnType<T["policy"]["settings"]["default"]>
 
 /** The builder `T` becomes after merging `P` in (with strategy tree `S`). */
@@ -433,7 +434,9 @@ export class VigorRetry<
             try {
                 await stage("onError", ctx.policy.middlewares.onError, async (middleware, trace) => {
                     if(middleware._mode === "fluent") {
-                        await middleware.func(ctx.error)
+                        // A returned value recovers with it; `undefined` leaves the failure as it is.
+                        const recovered = await middleware.func(ctx.error)
+                        if(recovered !== undefined) setResult(recovered as any)
                     } else {
                         ctx = (await middleware.func(ctx as any, trace({
                             setResult,

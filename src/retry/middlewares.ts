@@ -65,7 +65,8 @@ export type VigorRetryPolicyMiddlewaresFluent<
     }
     onError: {
         _mode: "fluent",
-        func: (err: VigorRetryContextSchema<T>["error"]) => void|Promise<void>
+        /** Returning a value (not `undefined`) recovers the run with it, like `setResult`. */
+        func: (err: VigorRetryContextSchema<T>["error"]) => unknown
     }
 }
 

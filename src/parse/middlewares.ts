@@ -34,7 +34,8 @@ export type VigorParsePolicyMiddlewaresFluent<
     before: { _mode: "fluent", func: (ctx: VigorParseBeforeContextSchema<T>) => void|Promise<void> }
     after: { _mode: "fluent", func: (ctx: VigorParseAfterContextSchema<T>) => void|Promise<void> }
     onResult: { _mode: "fluent", func: (res: VigorParseOnResultContextSchema<T>["result"]) => VigorParseContextSchema<any>["result"]|Promise<VigorParseContextSchema<any>["result"]> }
-    onError: { _mode: "fluent", func: (err: VigorParseContextSchema<T>["error"]) => void|Promise<void> }
+    /** Returning a value (not `undefined`) recovers the run with it, like `setResult`. */
+    onError: { _mode: "fluent", func: (err: VigorParseContextSchema<T>["error"]) => unknown }
 }
 
 export type VigorParsePolicyMiddlewaresApi<

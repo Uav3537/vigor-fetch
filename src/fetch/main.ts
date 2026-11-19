@@ -4,7 +4,7 @@ import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorFetchTypeLambda } from "./TL"
 import { VigorFetchPolicySettings, VigorFetchPolicySettingsSchema, type VigorFetcher } from "./settings"
-import { VigorBuiltin, VigorDeepMerge, VigorDeepPartial, VigorNoExtraKeys, VigorReturnType, VigorSimplify } from "@core/types"
+import { VigorBuiltin, VigorDeepMerge, VigorDeepPartial, VigorFluentRecovery, VigorHasIntercept, VigorNoExtraKeys, VigorReturnType, VigorSimplify } from "@core/types"
 import { VigorFetchErrorPipeResult, VigorFetchNaturalFor, VigorFetchPipeResult, VigorFetchPolicyMiddlewares, VigorFetchPolicyMiddlewaresApi, VigorFetchPolicyMiddlewaresSchema } from "./middlewares"
 import { adoptVigorFetchError, VigorFetchError, VigorFetchRequestError } from "./error"
 import { VigorRetry, VigorRetryBase, VigorRetrySchema } from "@retry/main"
@@ -43,6 +43,7 @@ export type VigorFetchSchema<
 export type VigorFetchResult<T extends VigorFetchSchema<T>> =
     | VigorExcludeDefault<VigorFetchContextSchema<T>["result"]>
     | VigorExcludeDefault<VigorFetchErrorPipeResult<T>>
+    | VigorFluentRecovery<T["policy"]["middlewares"]["onError"]>
     | VigorReturnType<T["policy"]["settings"]["default"]>
 
 /** The builder `T` becomes after merging `P` in (with strategy tree `S`). */
@@ -82,7 +83,9 @@ type VigorFetchVerboseParsed<T extends VigorFetchSchema<T>, R> =
  * `status`/`response` are `null`. Only possible when one of them is set.
  */
 type VigorFetchVerboseRecovered<T extends VigorFetchSchema<T>, R> =
-    | (T["policy"]["middlewares"]["onError"] extends readonly [] ? never : VigorExcludeDefault<VigorFetchErrorPipeResult<T>>)
+    // An intercept `onError` recovers with `setResult`, a fluent one with what it returns.
+    | (VigorHasIntercept<T["policy"]["middlewares"]["onError"]> extends true ? VigorExcludeDefault<VigorFetchErrorPipeResult<T>> : never)
+    | VigorFluentRecovery<T["policy"]["middlewares"]["onError"]>
     | (T["policy"]["settings"]["default"] extends VigorEmptyType ? never : VigorReturnType<T["policy"]["settings"]["default"]>) extends infer D
         ? [D] extends [never]
             ? never
@@ -904,7 +907,9 @@ export class VigorFetch<
             try {
                 await stage("onError", ctx.policy.middlewares.onError, async (middleware, trace) => {
                     if (middleware._mode === "fluent") {
-                        await middleware.func(ctx.error)
+                        // A returned value recovers with it; `undefined` leaves the failure as it is.
+                        const recovered = await middleware.func(ctx.error)
+                        if (recovered !== undefined) setResult(recovered as any)
                     } else {
                         ctx = (await middleware.func(ctx as any, trace({ setResult, throwError, proceedRestart, cancelRestart })) ?? ctx) as typeof ctx
                     }

@@ -299,6 +299,61 @@ await test("retry()/parse() merge into the current engine config; an instance re
     assert.equal(attempts, 2, "maxAttempts from the first retry() call was not used");
 });
 
+await test("A fluent onError recovers with the value it returns, and leaves the failure on undefined", async () => {
+    const failing = () => vigor.retry(async () => { throw new Error("boom") }).settings({ maxAttempts: 1 });
+
+    const recovered = await failing().middlewares(m => m.onError("fluent", () => "fallback")).requestVerbose();
+    assert.equal(recovered.success, true, "a returned value did not recover");
+    assert.equal(recovered.data, "fallback", "the recovered result is not the returned value");
+
+    const asyncRecovered = await failing().middlewares(m => m.onError("fluent", async () => 0)).request();
+    assert.equal(asyncRecovered, 0, "an awaited (falsy) value did not recover");
+
+    const nullRecovered = await failing().middlewares(m => m.onError("fluent", () => null)).request();
+    assert.equal(nullRecovered, null, "null did not recover");
+
+    const seen = [];
+    const observed = await failing().middlewares(m => m.onError("fluent", (err) => { seen.push(err) })).requestVerbose();
+    assert.equal(observed.success, false, "returning nothing recovered");
+    assert.equal(seen.length, 1, "the fluent onError did not run");
+
+    // A later fluent onError returning nothing doesn't undo an earlier recovery.
+    const kept = await failing().middlewares(m => m.onError("fluent", () => "first").onError("fluent", () => undefined)).request();
+    assert.equal(kept, "first", "a later undefined undid the recovery");
+
+    // The recovery wins over `default`, like setResult does.
+    const overDefault = await failing().settings({ default: () => "default" }).middlewares(m => m.onError("fluent", () => "fluent")).request();
+    assert.equal(overDefault, "fluent", "default won over the fluent recovery");
+
+    // The parse engine too.
+    const parsed = await vigor.parse(new Response("not json", { headers: { "content-type": "application/json" } }))
+        .middlewares(m => m.onError("fluent", () => "parse-fallback"))
+        .request();
+    assert.equal(parsed, "parse-fallback", "the parse engine's fluent onError did not recover");
+});
+
+await test("A fetch's fluent onError recovers a failed request: no status, no response", async () => {
+    const server = http.createServer((req, res) => {
+        res.statusCode = 500;
+        res.end("down");
+    });
+    await new Promise((resolve) => server.listen(0, resolve));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    try {
+        const base = vigor.fetch(origin).retry({ policy: { settings: { maxAttempts: 1 } } });
+        const recovered = await base.middlewares(m => m.onError("fluent", (err) => err.code === "RETRY_EXHAUSTED" ? { offline: true } : undefined)).requestVerbose();
+        assert.equal(recovered.success, true, "the fetch was not recovered");
+        assert.deepEqual(recovered.data, { offline: true }, "the recovered result is not the returned value");
+        assert.equal(recovered.status, null, "a recovered result has a status");
+        assert.equal(recovered.response, null, "a recovered result has a response");
+
+        const observed = await base.middlewares(m => m.onError("fluent", () => undefined)).requestVerbose();
+        assert.equal(observed.success, false, "undefined recovered the fetch");
+    } finally {
+        server.close();
+    }
+});
+
 await test("CJS build's vigor works the same as ESM's", async () => {
     const random = Math.random();
     const result = await cjs.vigor

@@ -4,7 +4,7 @@ import { VigorStatus } from "@core/status"
 import { VigorApply } from "@core/HKT"
 import { VigorParseTypeLambda } from "./TL"
 import { VigorParsePolicySettings, VigorParsePolicySettingsSchema } from "./settings"
-import { VigorDeepMerge, VigorDeepPartial, VigorNoExtraKeys, VigorReturnType } from "@core/types"
+import { VigorDeepMerge, VigorDeepPartial, VigorFluentRecovery, VigorHasIntercept, VigorNoExtraKeys, VigorReturnType } from "@core/types"
 import { VigorParseErrorPipeResult, VigorParsePipeResult, VigorParsePolicyMiddlewares, VigorParsePolicyMiddlewaresApi, VigorParsePolicyMiddlewaresSchema } from "./middlewares"
 import { VigorParsePolicyStrategies, VigorParsePolicyStrategiesSchema, VigorParseContentTypeStrategy, readVigorParseBody } from "./strategies"
 import { VigorParseError, VigorParseRequestError } from "./error"
@@ -29,6 +29,7 @@ export type VigorParseSchema<
 export type VigorParseResult<T extends VigorParseSchema<T>> =
     | VigorExcludeDefault<VigorParseContextSchema<T>["result"]>
     | VigorExcludeDefault<VigorParseErrorPipeResult<T>>
+    | VigorFluentRecovery<T["policy"]["middlewares"]["onError"]>
     | VigorReturnType<T["policy"]["settings"]["default"]>
 
 /**
@@ -40,8 +41,9 @@ export type VigorParseResult<T extends VigorParseSchema<T>> =
  */
 export type VigorParseResultFor<T extends VigorParseSchema<T>, Natural> =
     | VigorExcludeDefault<VigorParsePipeResult<T, Natural>>
-    // Only a configured `onError` can recover; without one it would add the pipeline's type again.
-    | (T["policy"]["middlewares"]["onError"] extends readonly [] ? never : VigorExcludeDefault<VigorParseErrorPipeResult<T, Natural>>)
+    // An intercept `onError` recovers with `setResult` (without one this would add the pipeline's type again), a fluent one with what it returns.
+    | (VigorHasIntercept<T["policy"]["middlewares"]["onError"]> extends true ? VigorExcludeDefault<VigorParseErrorPipeResult<T, Natural>> : never)
+    | VigorFluentRecovery<T["policy"]["middlewares"]["onError"]>
     | VigorReturnType<T["policy"]["settings"]["default"]>
 
 /** The builder `T` becomes after merging `P` in (with strategy tree `S`). */
@@ -301,7 +303,9 @@ export class VigorParse<
             try {
                 await stage("onError", ctx.policy.middlewares.onError, async (middleware, trace) => {
                     if (middleware._mode === "fluent") {
-                        await middleware.func(ctx.error)
+                        // A returned value recovers with it; `undefined` leaves the failure as it is.
+                        const recovered = await middleware.func(ctx.error)
+                        if (recovered !== undefined) setResult(recovered as any)
                     } else {
                         ctx = (await middleware.func(ctx as any, trace({ setResult, throwError, proceedRestart, cancelRestart })) ?? ctx) as typeof ctx
                     }

@@ -175,3 +175,76 @@ export async function failures() {
         const parsed: Expect<Equal<typeof pm.error.data.parsed, "p" | undefined>> = true
     }
 }
+
+// ============================================================================
+// recovery: only what can recover adds a `status: null` success
+// ============================================================================
+
+export async function recovery() {
+    // A fluent onError only observes: every success has a response.
+    const fluent = await user.middlewares(m => m.onError("fluent", e => { void e })).requestVerbose()
+    if (fluent.success) {
+        const status: Expect<Equal<typeof fluent.status, 200 | 202>> = true
+    }
+    // ...on the parse engine too.
+    const parseFluent = await user.parse(p => p.middlewares(m => m.onError("fluent", e => { void e }))).requestVerbose()
+    if (parseFluent.success) {
+        const status: Expect<Equal<typeof parseFluent.status, 200 | 202>> = true
+    }
+    // An intercept onError can `setResult`: a recovered success has no response.
+    const intercept = await user.middlewares(m => m.onError("intercept", ctx => ctx)).requestVerbose()
+    if (intercept.success) {
+        const status: Expect<Equal<typeof intercept.status, 200 | 202 | null>> = true
+    }
+    // A fluent one next to an intercept one still counts the intercept one.
+    const mixed = await user.middlewares(m => m.onError("fluent", e => { void e }).onError("intercept", ctx => ctx)).requestVerbose()
+    if (mixed.success) {
+        const status: Expect<Equal<typeof mixed.status, 200 | 202 | null>> = true
+    }
+    // `default` recovers too.
+    const withDefault = await user.middlewares(m => m.onError("fluent", e => { void e })).settings({ default: () => 0 as const }).requestVerbose()
+    if (withDefault.success) {
+        const status: Expect<Equal<typeof withDefault.status, 200 | 202 | null>> = true
+    }
+    // request() isn't affected either way.
+    const plain = await user.middlewares(m => m.onError("fluent", e => { void e })).request()
+    const result: Expect<Equal<typeof plain, User | { queued: true }>> = true
+}
+
+// ============================================================================
+// fluent onError: a returned value recovers with it, `undefined` doesn't
+// ============================================================================
+
+export async function fluentRecovery() {
+    // Returning a value: it joins the result, and a recovered success has no status.
+    const v = await user.middlewares(m => m.onError("fluent", () => "offline" as const)).requestVerbose()
+    if (v.success) {
+        const status: Expect<Equal<typeof v.status, 200 | 202 | null>> = true
+        if (v.status === null) {
+            const data: Expect<Equal<typeof v.data, "offline">> = true
+        }
+        if (v.status === 200) {
+            const data: Expect<Equal<typeof v.data, User>> = true
+        }
+    }
+    // Sometimes returning `undefined`: only the value joins.
+    const maybe = await user.middlewares(m => m.onError("fluent", (e) => e instanceof TypeError ? null : undefined)).request()
+    const t1: Expect<Equal<typeof maybe, User | { queued: true } | null>> = true
+    // Async.
+    const later = await user.middlewares(m => m.onError("fluent", async () => 0 as const)).request()
+    const t2: Expect<Equal<typeof later, User | { queued: true } | 0>> = true
+    // Several: their union.
+    const both = await user.middlewares(m => m.onError("fluent", () => 1 as const).onError("fluent", () => 2 as const)).request()
+    const t3: Expect<Equal<typeof both, User | { queued: true } | 1 | 2>> = true
+    // The parse engine's fluent onError recovers the parse.
+    const parsed = await users.parse(p => p.middlewares(m => m.onError("fluent", () => "parse-fb" as const))).request()
+    const t4: Expect<Equal<typeof parsed, User[] | "parse-fb">> = true
+}
+
+// The other engines.
+const retryRecovered = await vigor.retry(async () => 1 as const).middlewares(m => m.onError("fluent", () => "fb" as const)).request()
+export type RetryRecovered = Expect<Equal<typeof retryRecovered, 1 | "fb">>
+const retryObserved = await vigor.retry(async () => 1 as const).middlewares(m => m.onError("fluent", e => { void e })).request()
+export type RetryObserved = Expect<Equal<typeof retryObserved, 1>>
+const parseRecovered = await vigor.parse(new Response()).cast<"ok">().middlewares(m => m.onError("fluent", () => null)).request()
+export type ParseRecovered = Expect<Equal<typeof parseRecovered, "ok" | null>>

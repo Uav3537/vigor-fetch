@@ -246,6 +246,35 @@ export type VigorContextReset<Ctx, Fresh> = {
     [K in keyof Ctx | keyof Fresh]: K extends keyof Fresh ? Fresh[K] : K extends keyof Ctx ? Ctx[K] : never
 }
 
+/**
+ * Whether a middleware list holds an `intercept` one — for `onError`, whether
+ * a failure can be recovered (`setResult`): a fluent `onError` only observes.
+ */
+export type VigorHasIntercept<List> =
+    0 extends (1 & List)
+        ? true
+        : List extends readonly (infer M)[]
+            ? [Extract<M, { _mode: "intercept" }>] extends [never] ? false : true
+            : false
+
+/** One fluent `onError` middleware's recovery value: what it returns, awaited, other than `undefined` ("not recovered"). */
+type VigorFluentRecoveryOf<M> =
+    M extends { _mode: "fluent", func: (...args: any[]) => infer R }
+        ? Exclude<Awaited<R>, undefined | void>
+        : never
+
+/**
+ * What the fluent `onError` middlewares of `List` can recover a failure
+ * with: the union of their return values, `undefined` (no recovery) left
+ * out. `never` when none of them returns anything.
+ */
+export type VigorFluentRecovery<List> =
+    0 extends (1 & List)
+        ? never
+        : List extends readonly (infer M)[]
+            ? VigorFluentRecoveryOf<M>
+            : never
+
 /** One middleware applied to `Ctx` — see {@link VigorContextStage}. */
 type VigorContextStep<Ctx, M, FluentKey extends PropertyKey> =
     M extends { _mode: "intercept", func: (ctx: infer P, ...args: any[]) => infer Ret }
